@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="16.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Programming\Github\EE569_HW3\build\CMakeFiles\44b7b36ef4f17cce68a81a6b5df37b79\Nightly.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Programming\Github\EE569_HW3\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Programming\Github\EE569_HW3\build\CMakeFiles\Nightly" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{AE4075D2-7EDD-3E8F-9EFE-B0ACE53B1E8F}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
