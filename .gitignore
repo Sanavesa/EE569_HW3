@@ -82,7 +82,9 @@ include/divisible/*
 .idea/*.xml
 
 build/**/*
+build
 build/
+build/*
 
 include/*
 lib/*
