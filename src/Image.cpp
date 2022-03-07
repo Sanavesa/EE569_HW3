@@ -6,15 +6,15 @@
 #include "Image.h"
 
 // Creates a new image with the specified dimensions
-Image::Image(const uint32_t _width, const uint32_t _height, const uint8_t _channels)
+Image::Image(const size_t _width, const size_t _height, const size_t _channels)
     : width(_width), height(_height), channels(_channels), numPixels(_width * _height)
 {
     // Allocate image data array
     data = new uint8_t **[height];
-    for (uint32_t v = 0; v < height; v++)
+    for (size_t v = 0; v < height; v++)
     {
         data[v] = new uint8_t *[width];
-        for (uint32_t u = 0; u < width; u++)
+        for (size_t u = 0; u < width; u++)
             data[v][u] = new uint8_t[channels];
     }
 }
@@ -25,28 +25,28 @@ Image::Image(const Image &other)
 {
     // Allocate image data array
     data = new uint8_t **[height];
-    for (uint32_t v = 0; v < height; v++)
+    for (size_t v = 0; v < height; v++)
     {
         data[v] = new uint8_t *[width];
-        for (uint32_t u = 0; u < width; u++)
+        for (size_t u = 0; u < width; u++)
         {
             data[v][u] = new uint8_t[channels];
-            for (uint8_t c = 0; c < channels; c++)
+            for (size_t c = 0; c < channels; c++)
                 data[v][u][c] = other.data[v][u][c];
         }
     }
 }
 
 // Reads and loads the image in raw format, row-by-row RGB interleaved, from the specified filename
-Image::Image(const std::string &filename, const uint32_t _width, const uint32_t _height, const uint8_t _channels)
+Image::Image(const std::string &filename, const size_t _width, const size_t _height, const size_t _channels)
     : width(_width), height(_height), channels(_channels), numPixels(_width * _height)
 {
     // Allocate image data array
     data = new uint8_t **[height];
-    for (uint32_t v = 0; v < height; v++)
+    for (size_t v = 0; v < height; v++)
     {
         data[v] = new uint8_t *[width];
-        for (uint32_t u = 0; u < width; u++)
+        for (size_t u = 0; u < width; u++)
             data[v][u] = new uint8_t[channels];
     }
 
@@ -61,8 +61,8 @@ Image::Image(const std::string &filename, const uint32_t _width, const uint32_t 
     }
 
     // Read from the file: row-by-row, RGB interleaved
-    for (uint32_t v = 0; v < height; v++)
-        for (uint32_t u = 0; u < width; u++)
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
             inStream.read((char *)data[v][u], channels);
 
     inStream.close();
@@ -72,9 +72,9 @@ Image::Image(const std::string &filename, const uint32_t _width, const uint32_t 
 Image::~Image()
 {
     // Free image data resources
-    for (uint32_t v = 0; v < height; v++)
+    for (size_t v = 0; v < height; v++)
     {
-        for (uint32_t u = 0; u < width; u++)
+        for (size_t u = 0; u < width; u++)
             delete[] data[v][u];
 
         delete[] data[v];
@@ -97,8 +97,8 @@ bool Image::ExportRAW(const std::string &filename) const
     }
 
     // Write to the file: row-by-row, RGB interleaved
-    for (uint32_t v = 0; v < height; v++)
-        for (uint32_t u = 0; u < width; u++)
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
             outStream.write((char *)data[v][u], channels);
 
     outStream.close();
@@ -119,8 +119,8 @@ bool Image::ImportRAW(const std::string &filename)
     }
 
     // Read from the file: row-by-row, RGB interleaved
-    for (uint32_t v = 0; v < height; v++)
-        for (uint32_t u = 0; u < width; u++)
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
             inStream.read((char *)data[v][u], channels);
 
     inStream.close();
@@ -128,7 +128,7 @@ bool Image::ImportRAW(const std::string &filename)
 }
 
 // Determines if the given location is in a valid position in the image
-bool Image::IsInBounds(const int32_t row, const int32_t column, const uint8_t channel) const
+bool Image::IsInBounds(const int32_t row, const int32_t column, const size_t channel) const
 {
     // True if the pixel is in a valid position in the image, false otherwise
     return row >= 0 &&
@@ -139,7 +139,7 @@ bool Image::IsInBounds(const int32_t row, const int32_t column, const uint8_t ch
 }
 
 // Retrieves the pixel value at the specified location; if out of bounds, will utilize the specified boundary extension method
-uint8_t Image::GetPixelValue(const int32_t row, const int32_t column, const uint8_t channel, const BoundaryExtension &boundaryExtension) const
+uint8_t Image::GetPixelValue(const int32_t row, const int32_t column, const size_t channel, const BoundaryExtension &boundaryExtension) const
 {
     // If valid position, get the pixel directly
     if (IsInBounds(row, column, channel))
@@ -155,6 +155,8 @@ uint8_t Image::GetPixelValue(const int32_t row, const int32_t column, const uint
             // If we look at a single row, it should look [ORIGINAL] [REVERSED] [ORIGINAL] [REVERSED] ...
             // where the first [ORIGINAL] is the the image and the rest are out of bound extensions
             // Note: There is probably a better more compact version, but I'm only one day from submission, so this'll do!
+            const int32_t w = static_cast<int32_t>(width);
+            const int32_t h = static_cast<int32_t>(height);
 
             // The final index after applying the replication algorithm
             int32_t u = column, v = row;
@@ -169,23 +171,23 @@ uint8_t Image::GetPixelValue(const int32_t row, const int32_t column, const uint
             if (column < 0)
             {
                 uExtra = std::abs(column) - 1;
-                uReversed = (uExtra / width) % 2 == 1;
+                uReversed = (uExtra / w) % 2 == 1;
 
                 // Compute the u index of the boundary extension
                 if (uReversed)
-                    u = width - 1 - uExtra % 3;
+                    u = w - 1 - uExtra % 3;
                 else
                     u = uExtra % 3;
             }
             // If out of bounds from the right
-            else if (column >= (int32_t)width)
+            else if (column >= w)
             {
-                uExtra = column - width;
-                uReversed = (uExtra / width) % 2 == 0;
+                uExtra = column - w;
+                uReversed = (uExtra / w) % 2 == 0;
 
                 // Compute the u index of the boundary extension
                 if (uReversed)
-                    u = width - 1 - uExtra % 3;
+                    u = w - 1 - uExtra % 3;
                 else
                     u = uExtra % 3;
             }
@@ -194,41 +196,43 @@ uint8_t Image::GetPixelValue(const int32_t row, const int32_t column, const uint
             if (row < 0)
             {
                 vExtra = std::abs(row) - 1;
-                vReversed = (vExtra / height) % 2 == 1;
+                vReversed = (vExtra / h) % 2 == 1;
 
                 // Compute the v index of the boundary extension
                 if (vReversed)
-                    v = height - 1 - vExtra % 3;
+                    v = h - 1 - vExtra % 3;
                 else
                     v = vExtra % 3;
             }
             // If out of bounds from the bottom
-            else if (row >= (int32_t)height)
+            else if (row >= h)
             {
-                vExtra = column - height;
-                vReversed = (vExtra / height) % 2 == 0;
+                vExtra = column - h;
+                vReversed = (vExtra / h) % 2 == 0;
 
                 // Compute the v index of the boundary extension
                 if (vReversed)
-                    v = height - 1 - vExtra % 3;
+                    v = h - 1 - vExtra % 3;
                 else
                     v = vExtra % 3;
             }
 
-            return data[row][column][channel];
+            return data[v][u][channel];
         }
 
         case BoundaryExtension::Reflection:
         {
+            const int32_t w = static_cast<int32_t>(width);
+            const int32_t h = static_cast<int32_t>(height);
             int32_t u = column, v = row;
             if (u < 0)
                 u = std::abs(u);
-            if (u >= (int32_t)width)
-                u = (int32_t)(2 * (width - 1) - u);
+            if (u >= w)
+                u = 2 * (w - 1) - u;
             if (v < 0)
                 v = std::abs(v);
-            if (v >= (int32_t)height)
-                v = (int32_t)(2 * (height - 1) - v);
+            if (v >= h)
+                v = 2 * (h - 1) - v;
 
             return data[v][u][channel];
         }
@@ -240,63 +244,23 @@ uint8_t Image::GetPixelValue(const int32_t row, const int32_t column, const uint
     }
 }
 
-// Calculates the number of pixels for each intensity in the image
-std::array<uint32_t, 256> Image::CalculateHistogram(const uint8_t channel) const
-{
-    // Count the number of pixels for each intensity
-    std::array<uint32_t, 256> histogram;
-    histogram.fill(0);
-
-    for (uint32_t v = 0; v < height; v++)
-    {
-        for (uint32_t u = 0; u < width; u++)
-        {
-            const uint8_t intensity = data[v][u][channel];
-            histogram[intensity]++;
-        }
-    }
-
-    return histogram;
-}
-
-// Calculates the cumulative number of pixels for each intensity in the image
-std::array<uint32_t, 256> Image::CalculateCumulativeHistogram(const uint8_t channel) const
-{
-    // Calculate the cumulative number of pixels for each intensity
-    const auto histogram = CalculateHistogram(channel);
-    std::array<uint32_t, 256> cumulativeHistogram;
-    cumulativeHistogram.fill(0);
-
-    cumulativeHistogram[0] = histogram[0];
-    for (uint32_t i = 1; i < 256; i++)
-        cumulativeHistogram[i] = cumulativeHistogram[i - 1] + histogram[i];
-
-    return cumulativeHistogram;
-}
-
-// Calculates the cumulative density function of pixels for each intensity in the image
-std::array<double, 256> Image::CalculateCumulativeProbabilityHistogram(const uint8_t channel) const
-{
-    // Convert the cumulative number of pixels for each intensity into a cumulative density function (CDF)
-    const auto cumulativeHistogram = CalculateCumulativeHistogram(channel);
-    std::array<double, 256> cumulativeProbability;
-    cumulativeProbability.fill(0.0);
-
-    const double numPixelsDouble = (double)numPixels;
-    for (uint32_t i = 0; i < 256; i++)
-        cumulativeProbability[i] = cumulativeHistogram[i] / numPixelsDouble;
-
-    return cumulativeProbability;
-}
-
-// Retrieves the pixel value at the specified location; does not check for out of bounds
-uint8_t Image::operator()(const uint32_t row, const uint32_t column, const uint8_t channel) const
+// Retrieves the pixel value at the specified location; applies reflection padding for out of bounds
+uint8_t Image::operator()(const size_t row, const size_t column, const size_t channel) const
 {
     return data[row][column][channel];
 }
 
 // Retrieves the pixel value at the specified location; does not check for out of bounds
-uint8_t &Image::operator()(const uint32_t row, const uint32_t column, const uint8_t channel)
+uint8_t &Image::operator()(const size_t row, const size_t column, const size_t channel)
 {
     return data[row][column][channel];
+}
+
+// Sets the entire image across all channels to the specified value
+void Image::Fill(const uint8_t value)
+{
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
+            for (size_t c = 0; c < channels; c++)
+                data[v][u][c] = value;
 }

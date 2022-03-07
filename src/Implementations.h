@@ -4,185 +4,428 @@
 #define IMPLEMENTATIONS_H
 
 #include <iostream>
-#include <random>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 #include "Image.h"
 #include "Utility.h"
-#include "Filter.h"
 
-// Applies the Sobel edge detection algorithm on the given image with the specified threshold.
-// Will return a tuple of images:
-// 1st is the final edge map (edges are black, background is white)
-// 2nd is the final edge map (edges are white, background is black)
-// 3rd is the normalized gradient magnitude map
-std::tuple<Image, Image, Image> ApplySobel(const Image &image, const double threshold = 0.95)
+using namespace cv;
+
+// Indicates the triangle's position for Q1 as part of spatial wraping algorithm.
+enum TrianglePosition
 {
-    Image result(image.width, image.height, 1);
+    None = 0,
+    Left = 1,
+    Top = 2,
+    Right = 4,
+    Bottom = 8,
+    TopLeft = Top | Left,
+    TopRight = Top | Right,
+    BottomLeft = Bottom | Left,
+    BottomRight = Bottom | Right,
+};
 
-    const Filter xFilter = Filter::CreateSobelX();
-    const Filter yFilter = Filter::CreateSobelY();
+// Returns the image coordinate after applying a transformation matrix on the given image coordinate
+std::pair<double, double> TransformPosition(const Image &image, const Mat &matrix, const double &imageX, const double &imageY)
+{
+    // Convert cartesian
+    const auto [x, y] = ImageToCartesianCoord(image, imageX, imageY);
 
-    // Keep track of all magnitudes as a flattened array
-    double *gradMagnitudes = new double[result.numPixels];
+    // Apply matrix to the given x,y
+    double point[6] = {1, x, y, x * x, x * y, y * y};
+    Mat pointMat(6, 1, CV_64F, point);
 
-    // Keep of min and max gradient magnitude so we can normalize
-    double minGradMag = std::numeric_limits<double>::max();
-    double maxGradMag = std::numeric_limits<double>::min();
+    // Perform transformation and retrieve answer
+    Mat result = matrix * pointMat;
+    const double resultX = result.at<double>(0, 0);
+    const double resultY = result.at<double>(1, 0);
 
-    // Compute magnitudes
-    for (uint32_t v = 0, i = 0; v < result.height; v++)
-    {
-        for (uint32_t u = 0; u < result.width; u++, i++)
-        {
-            const double gradX = xFilter.Apply(image, u, v, 0, BoundaryExtension::Reflection);
-            const double gradY = yFilter.Apply(image, u, v, 0, BoundaryExtension::Reflection);
-            const double gradMag = Magnitude(gradX, gradY);
-            gradMagnitudes[i] = gradMag;
-            minGradMag = std::min(minGradMag, gradMag);
-            maxGradMag = std::max(maxGradMag, gradMag);
-        }
-    }
-
-    // Normalize magnitudes to 0-1 then scale by 255, using min-max normalization
-    for (uint32_t i = 0; i < result.numPixels; i++)
-        gradMagnitudes[i] = 255.0 * (gradMagnitudes[i] - minGradMag) / (maxGradMag - minGradMag);
-
-    // Create the image from the normalized&scaled magnitudes
-    for (uint32_t v = 0, i = 0; v < result.height; v++)
-        for (uint32_t u = 0; u < result.width; u++, i++)
-            result(v, u, 0) = Saturate(gradMagnitudes[i]);
-
-    // Free allocated memory
-    delete[] gradMagnitudes;
-
-    // Copy the result into another image to store the normalized gradient magnitude map
-    const Image normalizedGradientMap(result);
-
-    // Compute CDF of the image
-    const auto cdf = result.CalculateCumulativeProbabilityHistogram();
-
-    // Find intensity that meets the threshold (intensity >= threshold% of CDF)
-    uint8_t cutoffIntensity = 255;
-    for (uint8_t intensity = 0; intensity < 256; intensity++)
-    {
-        if (cdf[intensity] >= threshold)
-        {
-            // We found the cutoff intensity
-            cutoffIntensity = intensity;
-            break;
-        }
-    }
-
-    // Copy the result into another image to have both options of white edge on black and vice versa
-    Image resultAsWhiteEdge(result);
-
-    // Apply the cutoff intensity to the image, and make the pixels either black (0) or white (255)
-    for (uint32_t v = 0, i = 0; v < result.height; v++)
-    {
-        for (uint32_t u = 0; u < result.width; u++, i++)
-        {
-            // Keep pixel as black if greater than cuttoff, white otherwise
-            // Edge=black, background=white
-            result(v, u, 0) = (result(v, u, 0) >= cutoffIntensity) ? 0 : 255;
-
-            // Edge=white, background=black
-            resultAsWhiteEdge(v, u, 0) = (resultAsWhiteEdge(v, u, 0) >= cutoffIntensity) ? 255 : 0;
-        }
-    }
-
-    return std::make_tuple(result, resultAsWhiteEdge, normalizedGradientMap);
+    // Return answer as image coordinates (zero-based)
+    return CartesianToImageCoord(image, resultX, resultY);
 }
 
-// Applies dithering via Fixed Thresholding on the given image with the specified threshold
-Image DitherByFixedThresholding(const Image &image, const uint8_t threshold = 128)
+// Calculate wrapping transformation matrix from original to wrapped
+Mat CalcWrapMatrix(const Image &image, const TrianglePosition &position)
 {
-    Image result(image.width, image.height, image.channels);
-    for (uint32_t v = 0; v < image.height; v++)
-        for (uint32_t u = 0; u < image.width; u++)
-            for (uint8_t c = 0; c < image.channels; c++)
-                result(v, u, c) = (image(v, u, c) < threshold) ? 0 : 255;
+    // Extract image dimensions
+    double w = static_cast<double>(image.width);
+    double h = static_cast<double>(image.height);
 
-    return result;
+    // Preprare the set of points in image coord to use to calculate the transformation matrices
+    std::vector<std::pair<double, double>> imagePoints;
+    imagePoints.reserve(6);
+
+    // Add center point
+    imagePoints.push_back(std::make_pair(0.5 * w - 1, 0.5 * h - 1));
+
+    // Add top-left and median top-left
+    if (position & TopLeft)
+    {
+        imagePoints.push_back(std::make_pair(0, 0));
+        imagePoints.push_back(std::make_pair(0.25 * w - 1, 0.25 * h - 1));
+    }
+
+    // Add top-right and median top-right
+    if (position & TopRight)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, 0));
+        imagePoints.push_back(std::make_pair(0.75 * w - 1, 0.25 * h - 1));
+    }
+
+    // Add bottom-left and median bottom-right
+    if (position & BottomLeft)
+    {
+        imagePoints.push_back(std::make_pair(0, h - 1));
+        imagePoints.push_back(std::make_pair(0.25 * w - 1, 0.75 * h - 1));
+    }
+
+    // Add bottom-right and median bottom-right
+    if (position & BottomRight)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, h - 1));
+        imagePoints.push_back(std::make_pair(0.75 * w - 1, 0.75 * h - 1));
+    }
+
+    // Add triangle center's base
+    if (position & Left)
+    {
+        imagePoints.push_back(std::make_pair(0, 0.5 * h - 1));
+    }
+    else if (position & Right)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, 0.5 * h - 1));
+    }
+    else if (position & Top)
+    {
+        imagePoints.push_back(std::make_pair(0.5 * w - 1, 0));
+    }
+    else if (position & Bottom)
+    {
+        imagePoints.push_back(std::make_pair(0.5 * w - 1, h - 1));
+    }
+    else
+    {
+        std::cout << "Invalid position type given: " << (int)position << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    // Calculate the points and their target positions in cartesian coordinates
+    double *srcPoints = new double[6 * 6];  // 6x6 of positions, format for each position: 1 x y x^2 xy y^2
+    double *destPoints = new double[2 * 6]; // 2x6 of u,v positions, format: x0 y0 x1 y1 .. x5 y5
+
+    // Convert each point to cartesian
+    for (size_t i = 0; i < imagePoints.size(); i++)
+    {
+        const auto imageCoord = imagePoints[i];
+        const auto [x, y] = ImageToCartesianCoord(image, imageCoord.first, imageCoord.second);
+
+        // matrix of x,y positions
+        srcPoints[i + 0 * 6] = 1.0;
+        srcPoints[i + 1 * 6] = x;
+        srcPoints[i + 2 * 6] = y;
+        srcPoints[i + 3 * 6] = x * x;
+        srcPoints[i + 4 * 6] = x * y;
+        srcPoints[i + 5 * 6] = y * y;
+
+        // matrix of u,v positions
+        destPoints[i + 0 * 6] = x;
+        destPoints[i + 1 * 6] = y;
+    }
+
+    // Move the center pixel of the triangle's base by the radius of the circle, 64 pixels
+    // Index 5 is x5 and 11 is y5
+    if (position & Left)
+        destPoints[5] += 64;
+    else if (position & Right)
+        destPoints[5] -= 64;
+    else if (position & Top)
+        destPoints[11] -= 64;
+    else if (position & Bottom)
+        destPoints[11] += 64;
+
+    // Convert to OpenCV's matrix
+    Mat srcMat(6, 6, CV_64F, srcPoints); // the x,y matrix
+    srcMat = srcMat.inv();
+    Mat destMat(2, 6, CV_64F, destPoints); // the u,v matrix
+
+    return destMat * srcMat;
 }
 
-// Applies dithering via Random Thresholding on the given image
-Image DitherByRandomThresholding(const Image &image)
+// Calculate unwrapping transformation matrix from wrapped to original
+Mat CalcUnwrapMatrix(const Image &image, const TrianglePosition &position)
 {
-    // Prepare uniform distributon RNG
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distribution(0, 255);
+    // Extract image dimensions
+    double w = static_cast<double>(image.width);
+    double h = static_cast<double>(image.height);
 
-    Image result(image.width, image.height, image.channels);
-    for (uint32_t v = 0; v < image.height; v++)
-        for (uint32_t u = 0; u < image.width; u++)
-            for (uint8_t c = 0; c < image.channels; c++)
+    // Preprare the set of points in image coord to use to calculate the transformation matrices
+    std::vector<std::pair<double, double>> imagePoints;
+    imagePoints.reserve(6);
+
+    // Add center point
+    imagePoints.push_back(std::make_pair(0.5 * w - 1, 0.5 * h - 1));
+
+    // Add top-left and median top-left
+    if (position & TopLeft)
+    {
+        imagePoints.push_back(std::make_pair(0, 0));
+        imagePoints.push_back(std::make_pair(0.25 * w - 1, 0.25 * h - 1));
+    }
+
+    // Add top-right and median top-right
+    if (position & TopRight)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, 0));
+        imagePoints.push_back(std::make_pair(0.75 * w - 1, 0.25 * h - 1));
+    }
+
+    // Add bottom-left and median bottom-right
+    if (position & BottomLeft)
+    {
+        imagePoints.push_back(std::make_pair(0, h - 1));
+        imagePoints.push_back(std::make_pair(0.25 * w - 1, 0.75 * h - 1));
+    }
+
+    // Add bottom-right and median bottom-right
+    if (position & BottomRight)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, h - 1));
+        imagePoints.push_back(std::make_pair(0.75 * w - 1, 0.75 * h - 1));
+    }
+
+    // Add triangle center's base
+    if (position & Left)
+    {
+        imagePoints.push_back(std::make_pair(64, 0.5 * h - 1));
+    }
+    else if (position & Right)
+    {
+        imagePoints.push_back(std::make_pair(w - 1 - 64, 0.5 * h - 1));
+    }
+    else if (position & Top)
+    {
+        imagePoints.push_back(std::make_pair(0.5 * w - 1, 64));
+    }
+    else if (position & Bottom)
+    {
+        imagePoints.push_back(std::make_pair(0.5 * w - 1, h - 1 - 64));
+    }
+    else
+    {
+        std::cout << "Invalid position type given: " << (int)position << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    // Calculate the points and their target positions in cartesian coordinates
+    double *srcPoints = new double[6 * 6];  // 6x6 of positions, format for each position: 1 x y x^2 xy y^2
+    double *destPoints = new double[2 * 6]; // 2x6 of u,v positions, format: x0 y0 x1 y1 .. x5 y5
+
+    // Convert each point to cartesian
+    for (size_t i = 0; i < imagePoints.size(); i++)
+    {
+        const auto imageCoord = imagePoints[i];
+        const auto [x, y] = ImageToCartesianCoord(image, imageCoord.first, imageCoord.second);
+
+        // matrix of x,y positions
+        srcPoints[i + 0 * 6] = 1.0;
+        srcPoints[i + 1 * 6] = x;
+        srcPoints[i + 2 * 6] = y;
+        srcPoints[i + 3 * 6] = x * x;
+        srcPoints[i + 4 * 6] = x * y;
+        srcPoints[i + 5 * 6] = y * y;
+
+        // matrix of u,v positions
+        destPoints[i + 0 * 6] = x;
+        destPoints[i + 1 * 6] = y;
+    }
+
+    // Move the center pixel of the triangle's base by the radius of the circle, 64 pixels
+    // Index 5 is x5 and 11 is y5
+    if (position & Left)
+        destPoints[5] -= 64;
+    else if (position & Right)
+        destPoints[5] += 64;
+    else if (position & Top)
+        destPoints[11] += 64;
+    else if (position & Bottom)
+        destPoints[11] -= 64;
+
+    // Convert to OpenCV's matrix
+    Mat srcMat(6, 6, CV_64F, srcPoints); // the x,y matrix
+    srcMat = srcMat.inv();
+    Mat destMat(2, 6, CV_64F, destPoints); // the u,v matrix
+
+    return destMat * srcMat;
+}
+
+// Applies a forward mapping with rounding on dest u,v positions
+void ApplyForwardMapping(const Image &src, Image &dest, const Mat matrix, const TrianglePosition &position)
+{
+    if (position & Bottom)
+    {
+        for (size_t y = src.height - 1, i = 0; y >= src.height / 2; y--, i++)
+        {
+            for (size_t x = i; x < src.width - i; x++)
             {
-                const uint8_t threshold = static_cast<uint8_t>(distribution(gen));
-                result(v, u, c) = (image(v, u, c) < threshold) ? 0 : 255;
+                // Convert image coordinate in src (x,y) to image coordinate in dest (destX, destY i.e. u,v)
+                const auto destPosition = TransformPosition(src, matrix, static_cast<double>(x), static_cast<double>(y));
+                const int32_t destX = static_cast<int32_t>(std::round(destPosition.first));
+                const int32_t destY = static_cast<int32_t>(std::round(destPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (dest.IsInBounds(destY, destX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(destY, destX, c) = src(y, x, c);
+                }
             }
+        }
+    }
+    else if (position & Top)
+    {
+        for (size_t y = 0, i = 0; y < src.height / 2; y++, i++)
+        {
+            for (size_t x = i; x < src.width - i; x++)
+            {
+                // Convert image coordinate in src (x,y) to image coordinate in dest (destX, destY i.e. u,v)
+                const auto destPosition = TransformPosition(src, matrix, static_cast<double>(x), static_cast<double>(y));
+                const int32_t destX = static_cast<int32_t>(std::round(destPosition.first));
+                const int32_t destY = static_cast<int32_t>(std::round(destPosition.second));
 
-    return result;
+                // Only copy pixels if the pixel is within bounds
+                if (dest.IsInBounds(destY, destX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(destY, destX, c) = src(y, x, c);
+                }
+            }
+        }
+    }
+    else if (position & Left)
+    {
+        for (size_t x = 0, i = 0; x < src.width / 2; x++, i++)
+        {
+            for (size_t y = i; y < src.height - i; y++)
+            {
+                // Convert image coordinate in src (x,y) to image coordinate in dest (destX, destY i.e. u,v)
+                const auto destPosition = TransformPosition(src, matrix, static_cast<double>(x), static_cast<double>(y));
+                const int32_t destX = static_cast<int32_t>(std::round(destPosition.first));
+                const int32_t destY = static_cast<int32_t>(std::round(destPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (dest.IsInBounds(destY, destX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(destY, destX, c) = src(y, x, c);
+                }
+            }
+        }
+    }
+    else if (position & Right)
+    {
+        for (size_t x = src.width - 1, i = 0; x >= src.width / 2; x--, i++)
+        {
+            for (size_t y = i; y < src.height - i; y++)
+            {
+                // Convert image coordinate in src (x,y) to image coordinate in dest (destX, destY i.e. u,v)
+                const auto destPosition = TransformPosition(src, matrix, static_cast<double>(x), static_cast<double>(y));
+                const int32_t destX = static_cast<int32_t>(std::round(destPosition.first));
+                const int32_t destY = static_cast<int32_t>(std::round(destPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (dest.IsInBounds(destY, destX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(destY, destX, c) = src(y, x, c);
+                }
+            }
+        }
+    }
 }
 
-// Applies dithering via Dithering Matrix on the given image with the specified matrix size
-Image DitherByMatrix(const Image &image, const uint32_t matrixSize)
+// Applies a inverse mapping with rounding on src x,y positions
+void ApplyInverseMapping(const Image &src, Image &dest, const Mat matrix, const TrianglePosition &position)
 {
-    const auto matrix = GenerateBayerMatrix(matrixSize);
+    if (position & Bottom)
+    {
+        for (size_t v = dest.height - 1, i = 0; v >= dest.height / 2; v--, i++)
+        {
+            for (size_t u = i; u < dest.width - i; u++)
+            {
+                // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+                const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+                const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+                const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
 
-    Image result(image.width, image.height, image.channels);
-    for (uint32_t v = 0; v < result.height; v++)
-        for (uint32_t u = 0; u < result.width; u++)
-            for (uint8_t c = 0; c < result.channels; c++)
-                result(v, u, c) = (image(v, u, c) <= matrix[v % matrixSize][u % matrixSize]) ? 0 : 255;
+                // Only copy pixels if the pixel is within bounds
+                if (src.IsInBounds(srcY, srcX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+            }
+        }
+    }
+    else if (position & Top)
+    {
+        for (size_t v = 0, i = 0; v < src.height / 2; v++, i++)
+        {
+            for (size_t u = i; u < src.width - i; u++)
+            {
+                // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+                const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+                const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+                const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
 
-    return result;
-}
+                // Only copy pixels if the pixel is within bounds
+                if (src.IsInBounds(srcY, srcX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+            }
+        }
+    }
+    else if (position & Left)
+    {
+        for (size_t u = 0, i = 0; u < src.width / 2; u++, i++)
+        {
+            for (size_t v = i; v < src.height - i; v++)
+            {
+                // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+                const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+                const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+                const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
 
-// Applies error diffusion by Floyd-Steinberg with serpentine scanning
-Image ErrorDiffusionByFloyd(const Image &image, const double threshold = 128.0)
-{
-    return Filter::ApplyErrorDiffusion(image, Filter::CreateFloydSteinberg(), threshold, true);
-}
+                // Only copy pixels if the pixel is within bounds
+                if (src.IsInBounds(srcY, srcX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+            }
+        }
+    }
+    else if (position & Right)
+    {
+        for (size_t u = src.width - 1, i = 0; u >= src.width / 2; u--, i++)
+        {
+            for (size_t v = i; v < src.height - i; v++)
+            {
+                // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+                const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+                const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+                const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
 
-// Applies error diffusion by Jarvis, Judice, and Ninke (JJN) with serpentine scanning
-Image ErrorDiffusionByJJN(const Image &image, const double threshold = 128.0)
-{
-    return Filter::ApplyErrorDiffusion(image, Filter::CreateJJN(), threshold, true);
-}
-
-// Applies error diffusion by Stucki with serpentine scanning
-Image ErrorDiffusionByStucki(const Image &image, const double threshold = 128.0)
-{
-    return Filter::ApplyErrorDiffusion(image, Filter::CreateStucki(), threshold, true);
-}
-
-// Applies error diffusion by Alali with serpentine scanning
-Image ErrorDiffusionByAlali(const Image &image)
-{
-    double threshold = 0.0;
-    for (uint32_t v = 0; v < image.height; v++)
-        for (uint32_t u = 0; u < image.width; u++)
-            for (uint8_t c = 0; c < image.channels; c++)
-                threshold += static_cast<double>(image(v, u, c));
-    threshold /= static_cast<double>(image.numPixels) * static_cast<double>(image.channels);
-    std::cout << "Adaptive Threshold: " << threshold << std::endl;
-    const Image result = Filter::ApplyErrorDiffusion(image, Filter::CreateAlali(), threshold, true);
-    return result;
-}
-
-// Applies separable error diffusion on the given image
-Image SeparableErrorDiffusion(const Image &image, const double threshold = 128.0)
-{
-    const Image imageCMY = RGB2CMY(image);
-    const Image resultCMY = ErrorDiffusionByFloyd(imageCMY, threshold);
-    const Image resultRGB = CMY2RGB(resultCMY);
-    return resultRGB;
-}
-
-// Applies Minimum Brightness Variation Quadrants (MBVQ) error diffusion on the given image
-Image MBVQErrorDiffusion(const Image &image)
-{
-    return Filter::ApplyMBVQErrorDiffusion(image, Filter::CreateFloydSteinberg(), true);
+                // Only copy pixels if the pixel is within bounds
+                if (src.IsInBounds(srcY, srcX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+            }
+        }
+    }
 }
 
 #endif // IMPLEMENTATIONS_H

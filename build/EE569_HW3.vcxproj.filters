@@ -10,18 +10,12 @@
     <ClCompile Include="D:\Programming\Github\EE569_HW3\src\Utility.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="D:\Programming\Github\EE569_HW3\src\Filter.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="D:\Programming\Github\EE569_HW3\src\Image.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\Programming\Github\EE569_HW3\src\Utility.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="D:\Programming\Github\EE569_HW3\src\Filter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\Programming\Github\EE569_HW3\src\Implementations.h">

@@ -321,8 +321,6 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="D:\Programming\Github\EE569_HW3\src\Image.cpp" />
     <ClInclude Include="D:\Programming\Github\EE569_HW3\src\Utility.h" />
     <ClCompile Include="D:\Programming\Github\EE569_HW3\src\Utility.cpp" />
-    <ClInclude Include="D:\Programming\Github\EE569_HW3\src\Filter.h" />
-    <ClCompile Include="D:\Programming\Github\EE569_HW3\src\Filter.cpp" />
     <ClInclude Include="D:\Programming\Github\EE569_HW3\src\Implementations.h" />
   </ItemGroup>
   <ItemGroup>

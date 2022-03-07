@@ -169,9 +169,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
-    <ProjectReference Include="D:\Programming\Github\EE569_HW3\build\EE569_HW3.vcxproj">
-      <Project>{CB4BFE28-03BB-31DE-A9A5-9621AA082C7D}</Project>
-      <Name>EE569_HW3</Name>
+    <ProjectReference Include="D:\Programming\Github\EE569_HW3\build\EE569_HW3_Q1.vcxproj">
+      <Project>{2AD3269E-F9C3-399A-9D58-A360D33C67CB}</Project>
+      <Name>EE569_HW3_Q1</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

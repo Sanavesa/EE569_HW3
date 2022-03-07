@@ -17,8 +17,8 @@ Using Command Line:
 	
 =============================================== How to Run ========================================================
 1- Open commandline and cd to the executable directory.
-2- Execute the command from the respective assignment. For example, for Q1a, run:
-	.\EE569_HW2_Q1a.exe Tiger 481 321 3 0.98
+2- Execute the command from the respective assignment. For example, for Q1, run:
+	.\EE569_HW3_Q1.exe Forky 328 328 3
 3- Profit!!!
 	
 =========================================== Notes on Arguments ====================================================
@@ -26,27 +26,17 @@ Using Command Line:
 2- The image filenames SHOULD NOT include an extension like .raw, the program will add that automatically.
 3- All arguments are mandatory, some may have defaults.
 
-================================================== Q1a ============================================================
+================================================== Q1 ============================================================
 Arguments:
-    programName inputFilenameNoExtension width height channels [sobelThreshold=0.95]
+    programName inputFilenameNoExtension width height channels
     inputFilenameNoExtension is the .raw image without the extension
 Example:
-    .\EE569_HW2_Q1a.exe Tiger 481 321 3 0.98
-    .\EE569_HW2_Q1a.exe Pig 481 321 3 0.98
+    .\EE569_HW3_Q1.exe Forky 328 328 3
+    .\EE569_HW3_Q1.exe 22 328 328 3
 
-================================================== Q1b ============================================================
-Arguments:
-    programName inputFilenameNoExtension [lowThreshold=100] [highThreshold=300] [sobelKernelSize=3] [blurKernelSize=7]
-    inputFilenameNoExtension is the .jpg image without the extension
-Example:
-    .\EE569_HW2_Q1b.exe Tiger 130 330 3 5
-    .\EE569_HW2_Q1b.exe Pig 135 290 3 5
 
-================================================== Q1c ============================================================
-In Matlab, run src_matlab/edges-master/q1c.m
 
-================================================== Q1d ============================================================
-In Matlab, run src_matlab/edges-master/q1d.m
+
 
 ================================================== Q2a ============================================================
 Arguments:

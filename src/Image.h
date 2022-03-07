@@ -27,20 +27,20 @@ private:
 
 public:
     // The width of the image in pixels in the image
-    const uint32_t width;
+    const size_t width;
     // The height of the image in pixels in the image
-    const uint32_t height;
+    const size_t height;
     // The number of channels in the image
-    const uint8_t channels;
+    const size_t channels;
     // The total number of pixels (width*height) in the image
-    const uint32_t numPixels;
+    const size_t numPixels;
 
     // Creates a new image with the specified dimensions
-    Image(const uint32_t _width, const uint32_t _height, const uint8_t _channels);
+    Image(const size_t _width, const size_t _height, const size_t _channels);
     // Copy constructor
     Image(const Image &other);
     // Reads and loads the image in raw format, row-by-row RGB interleaved, from the specified filename
-    Image(const std::string &filename, const uint32_t _width, const uint32_t _height, const uint8_t _channels);
+    Image(const std::string &filename, const size_t _width, const size_t _height, const size_t _channels);
     // Frees all dynamically allocated memory resources
     ~Image();
 
@@ -50,22 +50,18 @@ public:
     bool ImportRAW(const std::string &filename);
 
     // Determines if the given location is in a valid position in the image
-    bool IsInBounds(const int32_t row, const int32_t column, const uint8_t channel = 0) const;
+    bool IsInBounds(const int32_t row, const int32_t column, const size_t channel = 0) const;
     // Retrieves the pixel value at the specified location; if out of bounds, will utilize the specified boundary extension method
-    uint8_t GetPixelValue(const int32_t row, const int32_t column, const uint8_t channel = 0,
+    uint8_t GetPixelValue(const int32_t row, const int32_t column, const size_t channel = 0,
                           const BoundaryExtension &boundaryExtension = BoundaryExtension::Reflection) const;
 
-    // Calculates the number of pixels for each intensity in the image
-    std::array<uint32_t, 256> CalculateHistogram(const uint8_t channel = 0) const;
-    // Calculates the cumulative number of pixels for each intensity in the image
-    std::array<uint32_t, 256> CalculateCumulativeHistogram(const uint8_t channel = 0) const;
-    // Calculates the cumulative density function of pixels for each intensity in the image
-    std::array<double, 256> CalculateCumulativeProbabilityHistogram(const uint8_t channel = 0) const;
+    // Retrieves the pixel value at the specified location; does not check for out of bounds
+    uint8_t operator()(const size_t row, const size_t column, const size_t channel = 0) const;
+    // Retrieves the pixel value at the specified location; does not check for out of bounds
+    uint8_t &operator()(const size_t row, const size_t column, const size_t channel = 0);
 
-    // Retrieves the pixel value at the specified location; does not check for out of bounds
-    uint8_t operator()(const uint32_t row, const uint32_t column, const uint8_t channel = 0) const;
-    // Retrieves the pixel value at the specified location; does not check for out of bounds
-    uint8_t &operator()(const uint32_t row, const uint32_t column, const uint8_t channel = 0);
+    // Sets the entire image across all channels to the specified value
+    void Fill(const uint8_t value);
 };
 
 #endif // IMAGE_H
