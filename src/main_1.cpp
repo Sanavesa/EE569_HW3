@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
 {
     // Read the console arguments
     // Check for proper syntax
-    if (argc != 5 && argc != 6)
+    if (argc != 5)
     {
         std::cout << "Syntax Error - Arguments must be:" << std::endl;
         std::cout << "programName inputFilenameNoExtension width height channels" << std::endl;
