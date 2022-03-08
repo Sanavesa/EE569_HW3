@@ -36,9 +36,6 @@ Example:
 Image.h, Image.cpp
 	These files contain an abstraction for handling RAW images to simplify programming and for ease of readability.
 
-Filter.h, Filter.cpp
-	These files contain a generic implementation for filters, where they are used with Image as a convolution.
-
 Utility.h, Utility.cpp
 	These files provide auxiliary helper functions used through the program.
 
