@@ -3,6 +3,7 @@ D:/Programming/Github/EE569_HW3/build/CMakeFiles/Nightly.dir
 D:/Programming/Github/EE569_HW3/build/CMakeFiles/Continuous.dir
 D:/Programming/Github/EE569_HW3/build/CMakeFiles/NightlyMemoryCheck.dir
 D:/Programming/Github/EE569_HW3/build/CMakeFiles/EE569_HW3_Q1.dir
+D:/Programming/Github/EE569_HW3/build/CMakeFiles/EE569_HW3_Q2.dir
 D:/Programming/Github/EE569_HW3/build/CMakeFiles/PACKAGE.dir
 D:/Programming/Github/EE569_HW3/build/CMakeFiles/RUN_TESTS.dir
 D:/Programming/Github/EE569_HW3/build/CMakeFiles/ALL_BUILD.dir
