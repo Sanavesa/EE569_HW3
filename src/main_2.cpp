@@ -44,6 +44,7 @@ Implementations.h
 */
 
 #include <iostream>
+#include <unordered_set>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
@@ -59,33 +60,6 @@ Implementations.h
 
 using namespace cv;
 using namespace cv::xfeatures2d;
-
-Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Point2f> destPoints);
-void RenderOn(const Image &src, Image &dest, size_t startX, size_t startY);
-
-// Converts the given RGB image into an OpenCV Mat object
-Mat RGBImageToMat(const Image& image)
-{
-    if (image.channels != 3)
-    {
-        std::cout << "Cannot convert non-RGB image to OpenCV Mat." << std::endl;
-        exit(-1);
-    }
-
-    Mat mat = Mat::zeros(static_cast<int>(image.height), static_cast<int>(image.width), CV_8UC3);
-    for (uint32_t v = 0; v < image.height; v++)
-        for (uint32_t u = 0; u < image.width; u++)
-        {
-            cv::Vec3b &color = mat.at<cv::Vec3b>(v, u);
-            // OpenCV uses BGR not RGB
-            for (uint32_t c = 0; c < image.channels; c++)
-                color[c] = image(v, u, image.channels - c - 1);
-            mat.at<cv::Vec3b>(v, u) = color;
-        }
-
-    return mat;
-}
-
 
 int main(int argc, char *argv[])
 {
@@ -122,137 +96,69 @@ int main(int argc, char *argv[])
 	if (!rightInputImage.ImportRAW(rightInputFilenameNoExtension + ".raw"))
 		return -1;
 
-    // Load images as OpenCV Mat
-    Mat leftMat = RGBImageToMat(leftInputImage);
-    Mat middleMat = RGBImageToMat(middleInputImage);
-    Mat rightMat = RGBImageToMat(rightInputImage);
+    // Calculate transformation matrices
+    Mat left2MiddleMat = CalculatePanoramaMatrix(leftInputImage, middleInputImage, 0.5f, -1);
+    Mat right2MiddleMat = CalculatePanoramaMatrix(rightInputImage, middleInputImage, 0.5f, -1);
+
+    // Calculate offsets
+    double minX = 99999999999;
+    double maxX = -minX, minY = minX, maxY = -minX;
+    CalculateExtremas(leftInputImage, left2MiddleMat, minX, maxX, minY, maxY);
+    CalculateExtremas(rightInputImage, right2MiddleMat, minX, maxX, minY, maxY);
+    std::cout << "Min X: " << minX << std::endl;
+    std::cout << "Max X: " << maxX << std::endl;
+    std::cout << "Min Y: " << minY << std::endl;
+    std::cout << "Max Y: " << maxY << std::endl;
 
 
+    // Create a large enough canvas, filled with black
+    const double offsetX = std::max(0.0, -minX);
+    const double offsetY = std::max(0.0, -minY);
+    const size_t canvasWidth = static_cast<size_t>(std::round(maxX + offsetX + 1));
+    const size_t canvasHeight = static_cast<size_t>(std::round(maxY + offsetY + 1));
 
+    std::cout << "Canvas dimensions: " << canvasWidth << ", " << canvasHeight << std::endl;
+    std::cout << "Offsets: " << offsetX << ", " << offsetY << std::endl;
+    Image panoramaImage(canvasWidth, canvasHeight, 3);
+    panoramaImage.Fill(0);
 
-    //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
-    int minHessian = 400;
-    Ptr<SURF> detector = SURF::create( minHessian );
-    std::vector<KeyPoint> keypoints1, keypoints2;
-    Mat descriptors1, descriptors2;
-    detector->detectAndCompute( leftMat, noArray(), keypoints1, descriptors1 );
-    detector->detectAndCompute( middleMat, noArray(), keypoints2, descriptors2 );
+    // Hold the occupied pixels, so we can average out if more than one image draws to the same location
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> occupiedPixels;
 
-    //-- Step 2: Matching descriptor vectors with a FLANN based matcher
-    // Since SURF is a floating-point descriptor NORM_L2 is used
-    Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
-    std::vector< std::vector<DMatch> > knn_matches;
-    matcher->knnMatch( descriptors1, descriptors2, knn_matches, 2 );
+    // Blit the middle image onto the canvas
+    Blit(middleInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels);
 
-    //-- Filter matches using the Lowe's ratio test
-    const float ratio_thresh = 0.5f;
-    std::vector<DMatch> good_matches;
-    for (size_t i = 0; i < knn_matches.size(); i++)
-    {
-        if (knn_matches[i][0].distance < ratio_thresh * knn_matches[i][1].distance)
-        {
-            good_matches.push_back(knn_matches[i][0]);
-        }
-    }
+    // Blit each image into the canvas
+    Blit(leftInputImage, panoramaImage, offsetX, offsetY, occupiedPixels, left2MiddleMat);
+    Blit(rightInputImage, panoramaImage, offsetX, offsetY, occupiedPixels, right2MiddleMat);
+
+    // Export panorama image
+    if (!panoramaImage.ExportRAW("panorama.raw"))
+        return -1;
+
+    // // Export interpolated panorama image
+    // std::cout << "occupied pixels: " << occupiedPixels.size() << std::endl;
+    // Interpolate(panoramaImage, occupiedPixels);
+    // if (!panoramaImage.ExportRAW("panorama_interpolated.raw"))
+    //     return -1;
+
+    Image temp1(canvasWidth, canvasHeight, 3);
+    temp1.Fill(0);
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> tempS;
     
-    //-- Draw matches
-    std::cout << "Found " << good_matches.size() << " matches" << std::endl;
-    // Mat img_matches;
-    // drawMatches( leftMat, keypoints1, middleMat, keypoints2, good_matches, img_matches, Scalar::all(-1),
-    //              Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+    Blit(middleInputImage, temp1, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), tempS);
+    temp1.ExportRAW("temp_mid.raw");
 
-    //-- Show detected matches
-    // imshow("Good Matches", img_matches );
-    // waitKey(0);
+    tempS.clear();
+    temp1.Fill(0);
+    Blit(leftInputImage, temp1, offsetX, offsetY, tempS, left2MiddleMat);
+    temp1.ExportRAW("temp_left.raw");
 
-    // Print keypoints
-    std::vector<Point2f> leftPoints, middlePoints;
-    for (const auto &match : good_matches)
-    {
-        std::cout << "Match: " << match.imgIdx << ", " << match.queryIdx << ", " << match.trainIdx << std::endl;
-        std::cout << "keypoints1q[" << match.queryIdx << "] = " << keypoints1[match.queryIdx].pt << std::endl; // left img coord
-        std::cout << "keypoints2t[" << match.trainIdx << "] = " << keypoints2[match.trainIdx].pt << std::endl; // middle img coord
-        leftPoints.push_back(keypoints1[match.queryIdx].pt);
-        middlePoints.push_back(keypoints2[match.trainIdx].pt);
-    }
-
-    // Build transformation calculation
-    // Mat H = findHomography(leftPoints, middlePoints);
-    Mat H = CalculateHMatrix(leftPoints, middlePoints);
-    print(H);
-
-    // Create a large enough canvas
-    // Output image
-    // Mat im_out;
-    // // Warp source image to destination based on homography
-    // warpPerspective(leftMat, im_out, H, middleMat.size());
-
-    // imshow("out", im_out);
-    // waitKey(0);
-
-    Image outputImage(leftInputImage.width * 10, leftInputImage.height * 2, leftInputImage.channels);
-    outputImage.Fill(0);
-
-    RenderOn(middleInputImage, outputImage, middleInputImage.width, 0);
-    ApplyMatrix(leftInputImage, outputImage, H);
-    outputImage.ExportRAW("output.raw");
-
-    TestMe(leftInputImage, H);
+    tempS.clear();
+    temp1.Fill(0);
+    Blit(rightInputImage, temp1, offsetX, offsetY, tempS, right2MiddleMat);
+    temp1.ExportRAW("temp_right.raw");
 
     std::cout << "Done" << std::endl;
     return 0;
-}
-
-Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Point2f> destPoints)
-{
-    // H\lambda [3x3] * src [x,y,1] = dest [x,y,1]
-    const int pointsCount = srcPoints.size();
-    double *srcArray = new double[3 * pointsCount];
-    double *destArray = new double[3 * pointsCount];
-    for (int i = 0; i < pointsCount; i++)
-    {
-        srcArray[i + 0 * pointsCount] = static_cast<double>(srcPoints.at(i).x);
-        srcArray[i + 1 * pointsCount] = static_cast<double>(srcPoints.at(i).y);
-        srcArray[i + 2 * pointsCount] = 1.0;
-
-        destArray[i + 0 * pointsCount] = static_cast<double>(destPoints.at(i).x);
-        destArray[i + 1 * pointsCount] = static_cast<double>(destPoints.at(i).y);
-        destArray[i + 2 * pointsCount] = 1.0;
-    }
-
-    Mat srcMat(3, pointsCount, CV_64FC1, srcArray);
-    std::cout << "src mat" << std::endl;
-    print(srcMat);
-    Mat destMat(3, pointsCount, CV_64FC1, destArray);
-    std::cout << "\ndest mat" << std::endl;
-    print(destMat);
-    
-    std::cout << "\nsrc inv mat" << std::endl;
-    Mat srcInvMat;
-    invert(srcMat, srcInvMat, DECOMP_SVD);
-    print(srcInvMat);
-
-    std::cout << "\nh mat" << std::endl;
-    Mat h = destMat * srcInvMat;
-    print(h);
-
-    return h;
-}
-
-void RenderOn(const Image& src, Image& dest, size_t startX, size_t startY)
-{
-    for (size_t v = 0; v < src.height; v++)
-    {
-        for (size_t u = 0; u < src.width; u++)
-        {
-            size_t x = u + startX;
-            size_t y = v + startY;
-
-            if (dest.IsInBounds(static_cast<int32_t>(y), static_cast<int32_t>(x)))
-            {
-                for (size_t c = 0; c < src.channels; c++)
-                    dest(y, x, c) = src(v, u, c);
-            }
-        }
-    }
 }

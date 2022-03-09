@@ -1,7 +1,6 @@
 #include "Utility.h"
 #include <cmath>
 #include <iostream>
-#include "Image.h"
 
 // Returns the intensity saturated to the range [0, 255]
 uint8_t Saturate(const double intensity)
@@ -43,4 +42,28 @@ std::pair<double, double> CartesianToImageCoord(const Image& image, const double
     // j = J - 0.5 - y_j
     const double imageHeight = static_cast<double>(image.height);
     return std::make_pair(x - 0.5, imageHeight - 0.5 - y);
+}
+
+// Converts the given RGB image into an OpenCV Mat object
+cv::Mat RGBImageToMat(const Image& image)
+{
+    using namespace cv;
+    if (image.channels != 3)
+    {
+        std::cout << "Cannot convert non-RGB image to OpenCV Mat." << std::endl;
+        exit(-1);
+    }
+
+    Mat mat = Mat::zeros(static_cast<int>(image.height), static_cast<int>(image.width), CV_8UC3);
+    for (uint32_t v = 0; v < image.height; v++)
+        for (uint32_t u = 0; u < image.width; u++)
+        {
+            cv::Vec3b &color = mat.at<cv::Vec3b>(v, u);
+            // OpenCV uses BGR not RGB
+            for (uint32_t c = 0; c < image.channels; c++)
+                color[c] = image(v, u, image.channels - c - 1);
+            mat.at<cv::Vec3b>(v, u) = color;
+        }
+
+    return mat;
 }
