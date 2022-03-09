@@ -505,6 +505,7 @@ std::tuple<std::vector<Point2f>, std::vector<Point2f>, Mat> FindControlPoints(co
             }
         }
     }
+    std::cout << "Number of matches: " << matches.size() << std::endl;
 
     // Generate an image to show the visualization of control points
     Mat visualizationMat;
