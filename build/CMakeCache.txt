@@ -265,7 +265,7 @@ MEMORYCHECK_COMMAND:FILEPATH=C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/
 MEMORYCHECK_SUPPRESSIONS_FILE:FILEPATH=
 
 //The directory containing a CMake configuration file for OpenCV.
-OpenCV_DIR:PATH=C:/opencv/build/x64/vc15/lib
+OpenCV_DIR:PATH=C:/opencv/build/install/x64/vc16/lib
 
 //Name of the computer/site where compile is being run
 SITE:STRING=SANAVESA-PC
@@ -430,7 +430,7 @@ CTEST_SUBMIT_RETRY_DELAY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: DART_TESTING_TIMEOUT
 DART_TESTING_TIMEOUT-ADVANCED:INTERNAL=1
 //Details about finding OpenCV
-FIND_PACKAGE_MESSAGE_DETAILS_OpenCV:INTERNAL=[C:/opencv/build][v4.5.5()]
+FIND_PACKAGE_MESSAGE_DETAILS_OpenCV:INTERNAL=[C:/opencv/build/install][v4.5.5()]
 //ADVANCED property for variable: GITCOMMAND
 GITCOMMAND-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: MAKECOMMAND

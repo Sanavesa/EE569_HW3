@@ -44,10 +44,42 @@ Implementations.h
 */
 
 #include <iostream>
+
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/features2d.hpp>
+#include <opencv2/xfeatures2d.hpp>
+#include <opencv2/xfeatures2d/nonfree.hpp>
+
 #include "Image.h"
 #include "Implementations.h"
+
+using namespace cv;
+using namespace cv::xfeatures2d;
+
+// Converts the given RGB image into an OpenCV Mat object
+Mat RGBImageToMat(const Image& image)
+{
+    if (image.channels != 3)
+    {
+        std::cout << "Cannot convert non-RGB image to OpenCV Mat." << std::endl;
+        exit(-1);
+    }
+
+    Mat mat = Mat::zeros(static_cast<int>(image.height), static_cast<int>(image.width), CV_8UC3);
+    for (uint32_t v = 0; v < image.height; v++)
+        for (uint32_t u = 0; u < image.width; u++)
+        {
+            cv::Vec3b &color = mat.at<cv::Vec3b>(v, u);
+            // OpenCV uses BGR not RGB
+            for (uint32_t c = 0; c < image.channels; c++)
+                color[c] = image(v, u, image.channels - c - 1);
+            mat.at<cv::Vec3b>(v, u) = color;
+        }
+
+    return mat;
+}
 
 
 int main(int argc, char *argv[])
@@ -85,7 +117,47 @@ int main(int argc, char *argv[])
 	if (!rightInputImage.ImportRAW(rightInputFilenameNoExtension + ".raw"))
 		return -1;
 
-    // Do stuff
+    // Load images as OpenCV Mat
+    Mat leftMat = RGBImageToMat(leftInputImage);
+    Mat middleMat = RGBImageToMat(middleInputImage);
+    Mat rightMat = RGBImageToMat(rightInputImage);
+
+    imshow("left", leftMat);
+    imshow("middle", middleMat);
+    imshow("right", rightMat);
+    waitKey(0);
+
+
+        //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
+    int minHessian = 400;
+    Ptr<SURF> detector = SURF::create( minHessian );
+    std::vector<KeyPoint> keypoints1, keypoints2;
+    Mat descriptors1, descriptors2;
+    detector->detectAndCompute( leftMat, noArray(), keypoints1, descriptors1 );
+    detector->detectAndCompute( middleMat, noArray(), keypoints2, descriptors2 );
+    //-- Step 2: Matching descriptor vectors with a FLANN based matcher
+    // Since SURF is a floating-point descriptor NORM_L2 is used
+    Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+    std::vector< std::vector<DMatch> > knn_matches;
+    matcher->knnMatch( descriptors1, descriptors2, knn_matches, 2 );
+    //-- Filter matches using the Lowe's ratio test
+    const float ratio_thresh = 0.5f;
+    std::vector<DMatch> good_matches;
+    for (size_t i = 0; i < knn_matches.size(); i++)
+    {
+        if (knn_matches[i][0].distance < ratio_thresh * knn_matches[i][1].distance)
+        {
+            good_matches.push_back(knn_matches[i][0]);
+        }
+    }
+    std::cout << "Found " << good_matches.size() << " matches" << std::endl;
+    //-- Draw matches
+    Mat img_matches;
+    drawMatches( leftMat, keypoints1, middleMat, keypoints2, good_matches, img_matches, Scalar::all(-1),
+                 Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+    //-- Show detected matches
+    imshow("Good Matches", img_matches );
+    waitKey(0);
 
     std::cout << "Done" << std::endl;
     return 0;
