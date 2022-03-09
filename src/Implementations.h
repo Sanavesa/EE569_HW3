@@ -439,7 +439,7 @@ void ApplyInverseMapping(const Image &src, Image &dest, const Mat matrix, const 
     }
 }
 
-
+// Computes the H transformation matrix given a set of control points
 Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Point2f> destPoints)
 {
     // H\lambda [3x3] * src [x,y,1] = dest [x,y,1]
@@ -458,47 +458,41 @@ Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Poi
     }
 
     Mat srcMat(3, pointsCount, CV_64FC1, srcArray);
-    std::cout << "src mat" << std::endl;
-    print(srcMat);
     Mat destMat(3, pointsCount, CV_64FC1, destArray);
-    std::cout << "\ndest mat" << std::endl;
-    print(destMat);
-    
-    std::cout << "\nsrc inv mat" << std::endl;
     Mat srcInvMat;
     invert(srcMat, srcInvMat, DECOMP_SVD);
-    print(srcInvMat);
-
-    std::cout << "\nh mat" << std::endl;
     Mat h = destMat * srcInvMat;
-    print(h);
 
     return h;
 }
 
-Mat CalculatePanoramaMatrix(const Image &fromImage, const Image &toImage, const float ratioThreshold = 0.5f, const int maxPointsCount = -1)
+// Computes and finds the best control points that maps fromImage to the toImage with the specified threshold (lower=better quality) with the specified number of points (-1 for infinite).
+// The output tuple is [fromPoints, toPoints, visualizeImg]
+// Credit: OpenCV Documentation
+std::tuple<std::vector<Point2f>, std::vector<Point2f>, Mat> FindControlPoints(const Image &fromImage, const Image &toImage, const float ratioThreshold = 0.5f, const int maxPointsCount = -1)
 {
     // Load images as OpenCV Mat
     Mat fromMat = RGBImageToMat(fromImage);
     Mat toMat = RGBImageToMat(toImage);
 
-    //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
-    int minHessian = 400;
-    Ptr<SURF> detector = SURF::create(minHessian);
+    // Use SURF to detect control points (the key points)
+    constexpr double hessianThreshold = 400;
+    constexpr int nOctaves = 4;
+    constexpr int nOctaveLayers = 12;
+    Ptr<SURF> detector = SURF::create(hessianThreshold, nOctaveLayers, nOctaveLayers);
     std::vector<KeyPoint> fromKeypoints, toKeypoints;
     Mat fromDescriptors, toDescriptors;
     detector->detectAndCompute(fromMat, noArray(), fromKeypoints, fromDescriptors);
     detector->detectAndCompute(toMat, noArray(), toKeypoints, toDescriptors);
 
-    //-- Step 2: Matching descriptor vectors with a FLANN based matcher
-    // Since SURF is a floating-point descriptor NORM_L2 is used
+    // Use a bruteforce based matcher to match the computed detectors, and use a K-nearest neighbors to perform the pairing
     Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::BRUTEFORCE);
-    // Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
     std::vector<std::vector<DMatch>> knnMatches;
     matcher->knnMatch(fromDescriptors, toDescriptors, knnMatches, 2);
 
-    //-- Filter matches using the Lowe's ratio test
+    // Select only the matches that are similar, which is done via a similarity check based upon a ratio
     std::vector<Point2f> fromPoints, toPoints;
+    std::vector<DMatch> matches;
     for (size_t i = 0; i < knnMatches.size(); i++)
     {
         if (knnMatches[i][0].distance < ratioThreshold * knnMatches[i][1].distance)
@@ -507,14 +501,19 @@ Mat CalculatePanoramaMatrix(const Image &fromImage, const Image &toImage, const 
             {
                 fromPoints.push_back(fromKeypoints[knnMatches[i][0].queryIdx].pt);
                 toPoints.push_back(toKeypoints[knnMatches[i][0].trainIdx].pt);
+                matches.push_back(knnMatches[i][0]);
             }
         }
     }
 
-    // Build transformation calculation
-    return CalculateHMatrix(fromPoints, toPoints);
+    // Generate an image to show the visualization of control points
+    Mat visualizationMat;
+    drawMatches(fromMat, fromKeypoints, toMat, toKeypoints, matches, visualizationMat, Scalar::all(-1), Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+
+    return std::make_tuple(fromPoints, toPoints, visualizationMat);
 }
 
+// Computes the minimum, maximum rectangular boundary of the transformed image.
 void CalculateExtremas(const Image &src, const Mat matrix, double& minX, double& maxX, double& minY, double& maxY)
 {
     for (size_t v = 0; v < src.height; v++)
@@ -538,6 +537,7 @@ void CalculateExtremas(const Image &src, const Mat matrix, double& minX, double&
     }
 }
 
+// Blits the given src image onto dest with the specified offsets.
 void Blit(const Image& src, Image& dest, const size_t offsetX, const size_t offsetY, std::unordered_set<std::pair<size_t, size_t>, PairHash>& occupiedPixels)
 {
     for (size_t v = 0; v < src.height; v++)
@@ -561,7 +561,7 @@ void Blit(const Image& src, Image& dest, const size_t offsetX, const size_t offs
                 else
                 {
                     for (size_t c = 0; c < src.channels; c++)
-                        dest(y, x, c) = Saturate(((double)dest(y, x, c) + (double)src(v, u, c)) / 2.0);
+                        dest(y, x, c) = Saturate((double)dest(y, x, c) * 0.25 + (double)src(v, u, c) * 0.75);
                 }
 
                 occupiedPixels.insert(pos);
@@ -570,117 +570,66 @@ void Blit(const Image& src, Image& dest, const size_t offsetX, const size_t offs
     }
 }
 
-void Blit(const Image& src, Image& dest, const double offsetX, const double offsetY, std::unordered_set<std::pair<size_t, size_t>, PairHash>& occupiedPixels, const Mat matrix)
+// Blits the given src image onto dest with the specified offsets and transformation matrix. This uses inverse address mapping.
+void BlitInverse(const Image& src, Image& dest, const size_t offsetX, const size_t offsetY, std::unordered_set<std::pair<size_t, size_t>, PairHash>& occupiedPixels, const Mat matrix)
 {
-    for (size_t v = 0; v < src.height; v++)
+    const Mat invMat = matrix.inv();
+    for (size_t v = 0; v < dest.height; v++)
     {
-        for (size_t u = 0; u < src.width; u++)
+        for (size_t u = 0; u < dest.width; u++)
         {
+            /*
+            // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+            const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+            const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+            const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
+
+            // Only copy pixels if the pixel is within bounds
+            if (src.IsInBounds(srcY, srcX))
+            {
+                for (size_t c = 0; c < dest.channels; c++)
+                    dest(v, u, c) = src(srcY, srcX, c);
+            }
+            */
             // // Apply matrix to the given x,y
-            double point[3] = {static_cast<double>(u), static_cast<double>(v), 1.0};
+            double point[3] = {static_cast<double>(u) - offsetX, static_cast<double>(v) - offsetY, 1.0};
             Mat pointMat(3, 1, CV_64F, point);
 
             // // Perform transformation and retrieve answer
-            Mat result = matrix * pointMat;
+            Mat result = invMat * pointMat;
             const double resultX = result.at<double>(0, 0);
             const double resultY = result.at<double>(1, 0);
 
-            const int32_t destX = static_cast<int32_t>(std::round(resultX + offsetX));
-            const int32_t destY = static_cast<int32_t>(std::round(resultY + offsetY));
+            const int32_t srcX = static_cast<int32_t>(std::round(resultX));
+            const int32_t srcY = static_cast<int32_t>(std::round(resultY));
 
             // Only copy pixels if the pixel is within bounds
-            if (dest.IsInBounds(destY, destX))
+            if (src.IsInBounds(srcY, srcX))
             {
-                const auto pos = std::make_pair(destY, destX);
+                const auto pos = std::make_pair(v, u);
                 
                 // It is the first time drawing at this position
                 if (occupiedPixels.find(pos) == occupiedPixels.end())
                 {
                     for (size_t c = 0; c < src.channels; c++)
-                        dest(destY, destX, c) = src(v, u, c);
+                        dest(v, u, c) = src(srcY, srcX, c);
                 }
                 // Already has been drawn there before, lets average
                 else
                 {
                     for (size_t c = 0; c < src.channels; c++)
-                        dest(destY, destX, c) = Saturate(((double)dest(destY, destX, c) + (double)src(v, u, c)) / 2.0);
+                        dest(v, u, c) = Saturate(((double)dest(v, u, c) + (double)src(srcY, srcX, c)) / 2.0);
                 }
 
                 occupiedPixels.insert(pos);
             }
-            else
-            {
-                std::cout << "Out of bounds. Should not happen: " << destX << ", " << destY << " from " << u << ", " << v << std::endl;
-            }
+            // else
+            // {
+            //     std::cout << "Out of bounds. Should not happen: " << u << ", " << v << " from " << srcX << ", " << srcY << std::endl;
+            // }
         }
     }
 }
-
-
-// bool IsPixelOccupied(const Image& image, const int32_t row, const int32_t column, const std::unordered_set<std::pair<size_t, size_t>, PairHash>& occupiedPixels)
-// {
-//     // Ignore out of bounds
-//     if (row < 0 || column < 0 || row >= image.height || column >= image.width)
-//         return true;
-
-//     // Check if position is occupied
-//     const auto pos = std::make_pair(static_cast<size_t>(row), static_cast<size_t>(column));
-//     return occupiedPixels.find(pos) != occupiedPixels.begin();
-// }
-
-
-// void Interpolate(Image& image, const std::unordered_set<std::pair<size_t, size_t>, PairHash>& occupiedPixels)
-// {
-//     double *channels = new double[image.channels];
-
-//     for (int32_t v = 0; v < image.height; v++)
-//     {
-//         for (int32_t u = 0; u < image.width; u++)
-//         {
-//             if (image(v, u, 0) == 0 && image(v, u, 1) == 0 && image(v, u, 2) == 0)
-
-//             // If center pixel is not occupied...
-//             // if (!IsPixelOccupied(image, v, u, occupiedPixels))
-//             {
-//                 // std::cout << u << ", " << v << " not occupied" << std::endl;
-//                 int neighborCount = 0;
-
-//                 for (size_t c = 0; c < image.channels; c++)
-//                     channels[c] = 0;
-
-//                 // And all of its neighbors are occupied...
-//                 for (int32_t dv = -1; dv <= 1; dv++)
-//                 {
-//                     for (int32_t du = -1; du <= 1; du++)
-//                     {
-//                         if (dv == 0 && du == 0)
-//                             continue;
-
-//                         const int32_t v2 = v + dv;
-//                         const int32_t u2 = u + du;
-//                         if (image.IsInBounds(v2, u2) && IsPixelOccupied(image, v2, u2, occupiedPixels))
-//                         {
-//                             neighborCount++;
-//                             for (size_t c = 0; c < image.channels; c++)
-//                                 channels[c] += image(static_cast<size_t>(v2), static_cast<size_t>(u2), c);
-//                         }
-//                     }
-//                 }
-
-//                 if (neighborCount >= 1)
-//                 {
-//                     // std::cout << " OK! " << u << ", " << v << std::endl;
-//                     for (size_t c = 0; c < image.channels; c++)
-//                         image(v, u, c) = Saturate(channels[c] / neighborCount);
-//                 }
-//             }
-//         }
-//     }
-
-//     delete[] channels;
-// }
-
-
 
 
 #endif // IMPLEMENTATIONS_H

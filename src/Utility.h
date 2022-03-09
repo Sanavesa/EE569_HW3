@@ -19,6 +19,7 @@ std::pair<double, double> CartesianToImageCoord(const Image &image, const double
 cv::Mat RGBImageToMat(const Image &image);
 
 // Credit: https://stackoverflow.com/questions/15160889/how-can-i-make-an-unordered-set-of-pairs-of-integers-in-c
+// Used to make a std::pair hashable for std::unordered_set
 struct PairHash
 {
     inline std::size_t operator()(const std::pair<size_t, size_t>& v) const

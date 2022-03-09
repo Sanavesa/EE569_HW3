@@ -97,10 +97,54 @@ int main(int argc, char *argv[])
 		return -1;
 
     // Calculate transformation matrices
-    Mat left2MiddleMat = CalculatePanoramaMatrix(leftInputImage, middleInputImage, 0.5f, -1);
-    Mat right2MiddleMat = CalculatePanoramaMatrix(rightInputImage, middleInputImage, 0.5f, -1);
+    auto leftControlPoints = FindControlPoints(leftInputImage, middleInputImage, 0.25f, -1);
+    auto rightControlPoints = FindControlPoints(rightInputImage, middleInputImage, 0.35f, -1);
 
-    // Calculate offsets
+    // Left-Middle: Add custom control points, extra on top of SURF
+    std::get<0>(leftControlPoints).push_back(Point2f(511, 92));
+    std::get<1>(leftControlPoints).push_back(Point2f(365, 101));
+    std::get<0>(leftControlPoints).push_back(Point2f(470, 163));
+    std::get<1>(leftControlPoints).push_back(Point2f(331, 165));
+    std::get<0>(leftControlPoints).push_back(Point2f(376, 95));
+    std::get<1>(leftControlPoints).push_back(Point2f(243, 95));
+    std::get<0>(leftControlPoints).push_back(Point2f(375, 162));
+    std::get<1>(leftControlPoints).push_back(Point2f(242, 162));
+    std::get<0>(leftControlPoints).push_back(Point2f(217, 189));
+    std::get<1>(leftControlPoints).push_back(Point2f(71, 185));
+    std::get<0>(leftControlPoints).push_back(Point2f(522, 171));
+    std::get<1>(leftControlPoints).push_back(Point2f(376, 174));
+    std::get<0>(leftControlPoints).push_back(Point2f(391, 259));
+    std::get<1>(leftControlPoints).push_back(Point2f(260, 256));
+    // Right-Middle: Add custom control points, extra on top of SURF
+    std::get<0>(rightControlPoints).push_back(Point2f(213, 101));
+    std::get<1>(rightControlPoints).push_back(Point2f(365, 101));
+    std::get<0>(rightControlPoints).push_back(Point2f(180, 165));
+    std::get<1>(rightControlPoints).push_back(Point2f(331, 165));
+    std::get<0>(rightControlPoints).push_back(Point2f(79, 86));
+    std::get<1>(rightControlPoints).push_back(Point2f(243, 95));
+    std::get<0>(rightControlPoints).push_back(Point2f(81, 159));
+    std::get<1>(rightControlPoints).push_back(Point2f(242, 162));
+    std::get<0>(rightControlPoints).push_back(Point2f(352, 179));
+    std::get<1>(rightControlPoints).push_back(Point2f(517, 176));
+    std::get<0>(rightControlPoints).push_back(Point2f(226, 175));
+    std::get<1>(rightControlPoints).push_back(Point2f(376, 174));
+    std::get<0>(rightControlPoints).push_back(Point2f(103, 262));
+    std::get<1>(rightControlPoints).push_back(Point2f(260, 256));
+    std::get<0>(rightControlPoints).push_back(Point2f(265, 231));
+    std::get<1>(rightControlPoints).push_back(Point2f(416, 232));
+
+    // Visualize the control points and export them as images
+    imwrite("left-mid.png", std::get<2>(leftControlPoints));
+    imshow("left-mid", std::get<2>(leftControlPoints));
+    imwrite("right-mid.png", std::get<2>(rightControlPoints));
+    imshow("right-mid", std::get<2>(rightControlPoints));
+    waitKey(0);
+
+    // Compute the transformation matrix, H, for left/right to middle given the control points above
+    Mat left2MiddleMat = CalculateHMatrix(std::get<0>(leftControlPoints), std::get<1>(leftControlPoints));
+    Mat right2MiddleMat = CalculateHMatrix(std::get<0>(rightControlPoints), std::get<1>(rightControlPoints));
+
+    // Calculate offsets for the boundary of the canvas
     double minX = 99999999999;
     double maxX = -minX, minY = minX, maxY = -minX;
     CalculateExtremas(leftInputImage, left2MiddleMat, minX, maxX, minY, maxY);
@@ -110,13 +154,11 @@ int main(int argc, char *argv[])
     std::cout << "Min Y: " << minY << std::endl;
     std::cout << "Max Y: " << maxY << std::endl;
 
-
     // Create a large enough canvas, filled with black
     const double offsetX = std::max(0.0, -minX);
     const double offsetY = std::max(0.0, -minY);
     const size_t canvasWidth = static_cast<size_t>(std::round(maxX + offsetX + 1));
     const size_t canvasHeight = static_cast<size_t>(std::round(maxY + offsetY + 1));
-
     std::cout << "Canvas dimensions: " << canvasWidth << ", " << canvasHeight << std::endl;
     std::cout << "Offsets: " << offsetX << ", " << offsetY << std::endl;
     Image panoramaImage(canvasWidth, canvasHeight, 3);
@@ -125,39 +167,50 @@ int main(int argc, char *argv[])
     // Hold the occupied pixels, so we can average out if more than one image draws to the same location
     std::unordered_set<std::pair<size_t, size_t>, PairHash> occupiedPixels;
 
+    // Blit each image into the canvas
+    BlitInverse(leftInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels, left2MiddleMat);
+    BlitInverse(rightInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels, right2MiddleMat);
+
     // Blit the middle image onto the canvas
     Blit(middleInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels);
-
-    // Blit each image into the canvas
-    Blit(leftInputImage, panoramaImage, offsetX, offsetY, occupiedPixels, left2MiddleMat);
-    Blit(rightInputImage, panoramaImage, offsetX, offsetY, occupiedPixels, right2MiddleMat);
 
     // Export panorama image
     if (!panoramaImage.ExportRAW("panorama.raw"))
         return -1;
 
-    // // Export interpolated panorama image
-    // std::cout << "occupied pixels: " << occupiedPixels.size() << std::endl;
-    // Interpolate(panoramaImage, occupiedPixels);
-    // if (!panoramaImage.ExportRAW("panorama_interpolated.raw"))
-    //     return -1;
-
-    Image temp1(canvasWidth, canvasHeight, 3);
-    temp1.Fill(0);
+    // Used for local debugging: export and show each image separately as well as altogether
+    Mat tempMat = RGBImageToMat(panoramaImage);
+    imshow("panorama", tempMat);
+    imwrite("panorama.png", tempMat);
+    Image tempImage(canvasWidth, canvasHeight, 3);
+    tempImage.Fill(0);
     std::unordered_set<std::pair<size_t, size_t>, PairHash> tempS;
     
-    Blit(middleInputImage, temp1, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), tempS);
-    temp1.ExportRAW("temp_mid.raw");
+    // Show and export middle image alone
+    Blit(middleInputImage, tempImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), tempS);
+    tempMat = RGBImageToMat(tempImage);
+    tempImage.ExportRAW("solo_mid.raw");
+    imwrite("solo_mid.png", tempMat);
+    imshow("mid", tempMat);
 
+    // Show and export left image alone
     tempS.clear();
-    temp1.Fill(0);
-    Blit(leftInputImage, temp1, offsetX, offsetY, tempS, left2MiddleMat);
-    temp1.ExportRAW("temp_left.raw");
+    tempImage.Fill(0);
+    BlitInverse(leftInputImage, tempImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), tempS, left2MiddleMat);
+    tempMat = RGBImageToMat(tempImage);
+    tempImage.ExportRAW("solo_left.raw");
+    imwrite("solo_left.png", tempMat);
+    imshow("left", tempMat);
 
+    // Show and export right image alone
     tempS.clear();
-    temp1.Fill(0);
-    Blit(rightInputImage, temp1, offsetX, offsetY, tempS, right2MiddleMat);
-    temp1.ExportRAW("temp_right.raw");
+    tempImage.Fill(0);
+    BlitInverse(rightInputImage, tempImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), tempS, right2MiddleMat);
+    tempMat = RGBImageToMat(tempImage);
+    tempImage.ExportRAW("solo_right.raw");
+    imwrite("solo_right.png", tempMat);
+    imshow("right", tempMat);
+    waitKey(0);
 
     std::cout << "Done" << std::endl;
     return 0;
