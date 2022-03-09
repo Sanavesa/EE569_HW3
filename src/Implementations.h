@@ -428,4 +428,68 @@ void ApplyInverseMapping(const Image &src, Image &dest, const Mat matrix, const 
     }
 }
 
+
+void ApplyMatrix(const Image &src, Image& dest, const Mat matrix)
+{
+    for (size_t v = 0; v < src.height; v++)
+    {
+        for (size_t u = 0; u < src.width; u++)
+        {
+            // Apply matrix to the given x,y
+            double point[3] = {static_cast<double>(u), static_cast<double>(v), 1.0};
+            Mat pointMat(3, 1, CV_64F, point);
+
+            // Perform transformation and retrieve answer
+            Mat result = matrix * pointMat;
+            const double resultX = result.at<double>(0, 0);
+            const double resultY = result.at<double>(1, 0);
+
+            const int32_t destX = static_cast<int32_t>(std::round(resultX));
+            const int32_t destY = static_cast<int32_t>(std::round(resultY));
+
+            // Only copy pixels if the pixel is within bounds
+            if (dest.IsInBounds(destY, destX))
+            {
+                // std::cout << u << "," << v << " went to " << destX << ", " << destY << std::endl;
+                for (size_t c = 0; c < dest.channels; c++)
+                    dest(destY, destX, c) = src(v, u, c);
+            }
+        }
+    }
+}
+
+void TestMe(const Image &src, const Mat matrix)
+{
+    double minX = 999999;
+    double maxX = -9999999;
+    double minY = minX;
+    double maxY = maxX;
+
+    for (size_t v = 0; v < src.height; v++)
+    {
+        for (size_t u = 0; u < src.width; u++)
+        {
+            // Apply matrix to the given x,y
+            double point[3] = {static_cast<double>(u), static_cast<double>(v), 1.0};
+            Mat pointMat(3, 1, CV_64F, point);
+
+            // Perform transformation and retrieve answer
+            Mat result = matrix * pointMat;
+            const double resultX = result.at<double>(0, 0);
+            const double resultY = result.at<double>(1, 0);
+
+            minX = std::min(minX, resultX);
+            maxX = std::max(maxX, resultX);
+            minY = std::min(minY, resultY);
+            maxY = std::max(maxY, resultY);
+        }
+    }
+
+    std::cout << "Min X: " << minX << std::endl;
+    std::cout << "Max X: " << maxX << std::endl;
+    std::cout << "Min Y: " << minY << std::endl;
+    std::cout << "Max Y: " << maxY << std::endl;
+}
+
+
 #endif // IMPLEMENTATIONS_H

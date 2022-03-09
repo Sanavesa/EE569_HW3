@@ -45,18 +45,23 @@ Implementations.h
 
 #include <iostream>
 
+#include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/xfeatures2d.hpp>
 #include <opencv2/xfeatures2d/nonfree.hpp>
+#include <opencv2/calib3d.hpp>
 
 #include "Image.h"
 #include "Implementations.h"
 
 using namespace cv;
 using namespace cv::xfeatures2d;
+
+Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Point2f> destPoints);
+void RenderOn(const Image &src, Image &dest, size_t startX, size_t startY);
 
 // Converts the given RGB image into an OpenCV Mat object
 Mat RGBImageToMat(const Image& image)
@@ -122,24 +127,23 @@ int main(int argc, char *argv[])
     Mat middleMat = RGBImageToMat(middleInputImage);
     Mat rightMat = RGBImageToMat(rightInputImage);
 
-    imshow("left", leftMat);
-    imshow("middle", middleMat);
-    imshow("right", rightMat);
-    waitKey(0);
 
 
-        //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
+
+    //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
     int minHessian = 400;
     Ptr<SURF> detector = SURF::create( minHessian );
     std::vector<KeyPoint> keypoints1, keypoints2;
     Mat descriptors1, descriptors2;
     detector->detectAndCompute( leftMat, noArray(), keypoints1, descriptors1 );
     detector->detectAndCompute( middleMat, noArray(), keypoints2, descriptors2 );
+
     //-- Step 2: Matching descriptor vectors with a FLANN based matcher
     // Since SURF is a floating-point descriptor NORM_L2 is used
     Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
     std::vector< std::vector<DMatch> > knn_matches;
     matcher->knnMatch( descriptors1, descriptors2, knn_matches, 2 );
+
     //-- Filter matches using the Lowe's ratio test
     const float ratio_thresh = 0.5f;
     std::vector<DMatch> good_matches;
@@ -150,15 +154,105 @@ int main(int argc, char *argv[])
             good_matches.push_back(knn_matches[i][0]);
         }
     }
-    std::cout << "Found " << good_matches.size() << " matches" << std::endl;
+    
     //-- Draw matches
-    Mat img_matches;
-    drawMatches( leftMat, keypoints1, middleMat, keypoints2, good_matches, img_matches, Scalar::all(-1),
-                 Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+    std::cout << "Found " << good_matches.size() << " matches" << std::endl;
+    // Mat img_matches;
+    // drawMatches( leftMat, keypoints1, middleMat, keypoints2, good_matches, img_matches, Scalar::all(-1),
+    //              Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+
     //-- Show detected matches
-    imshow("Good Matches", img_matches );
-    waitKey(0);
+    // imshow("Good Matches", img_matches );
+    // waitKey(0);
+
+    // Print keypoints
+    std::vector<Point2f> leftPoints, middlePoints;
+    for (const auto &match : good_matches)
+    {
+        std::cout << "Match: " << match.imgIdx << ", " << match.queryIdx << ", " << match.trainIdx << std::endl;
+        std::cout << "keypoints1q[" << match.queryIdx << "] = " << keypoints1[match.queryIdx].pt << std::endl; // left img coord
+        std::cout << "keypoints2t[" << match.trainIdx << "] = " << keypoints2[match.trainIdx].pt << std::endl; // middle img coord
+        leftPoints.push_back(keypoints1[match.queryIdx].pt);
+        middlePoints.push_back(keypoints2[match.trainIdx].pt);
+    }
+
+    // Build transformation calculation
+    // Mat H = findHomography(leftPoints, middlePoints);
+    Mat H = CalculateHMatrix(leftPoints, middlePoints);
+    print(H);
+
+    // Create a large enough canvas
+    // Output image
+    // Mat im_out;
+    // // Warp source image to destination based on homography
+    // warpPerspective(leftMat, im_out, H, middleMat.size());
+
+    // imshow("out", im_out);
+    // waitKey(0);
+
+    Image outputImage(leftInputImage.width * 10, leftInputImage.height * 2, leftInputImage.channels);
+    outputImage.Fill(0);
+
+    RenderOn(middleInputImage, outputImage, middleInputImage.width, 0);
+    ApplyMatrix(leftInputImage, outputImage, H);
+    outputImage.ExportRAW("output.raw");
+
+    TestMe(leftInputImage, H);
 
     std::cout << "Done" << std::endl;
     return 0;
+}
+
+Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Point2f> destPoints)
+{
+    // H\lambda [3x3] * src [x,y,1] = dest [x,y,1]
+    const int pointsCount = srcPoints.size();
+    double *srcArray = new double[3 * pointsCount];
+    double *destArray = new double[3 * pointsCount];
+    for (int i = 0; i < pointsCount; i++)
+    {
+        srcArray[i + 0 * pointsCount] = static_cast<double>(srcPoints.at(i).x);
+        srcArray[i + 1 * pointsCount] = static_cast<double>(srcPoints.at(i).y);
+        srcArray[i + 2 * pointsCount] = 1.0;
+
+        destArray[i + 0 * pointsCount] = static_cast<double>(destPoints.at(i).x);
+        destArray[i + 1 * pointsCount] = static_cast<double>(destPoints.at(i).y);
+        destArray[i + 2 * pointsCount] = 1.0;
+    }
+
+    Mat srcMat(3, pointsCount, CV_64FC1, srcArray);
+    std::cout << "src mat" << std::endl;
+    print(srcMat);
+    Mat destMat(3, pointsCount, CV_64FC1, destArray);
+    std::cout << "\ndest mat" << std::endl;
+    print(destMat);
+    
+    std::cout << "\nsrc inv mat" << std::endl;
+    Mat srcInvMat;
+    invert(srcMat, srcInvMat, DECOMP_SVD);
+    print(srcInvMat);
+
+    std::cout << "\nh mat" << std::endl;
+    Mat h = destMat * srcInvMat;
+    print(h);
+
+    return h;
+}
+
+void RenderOn(const Image& src, Image& dest, size_t startX, size_t startY)
+{
+    for (size_t v = 0; v < src.height; v++)
+    {
+        for (size_t u = 0; u < src.width; u++)
+        {
+            size_t x = u + startX;
+            size_t y = v + startY;
+
+            if (dest.IsInBounds(static_cast<int32_t>(y), static_cast<int32_t>(x)))
+            {
+                for (size_t c = 0; c < src.channels; c++)
+                    dest(y, x, c) = src(v, u, c);
+            }
+        }
+    }
 }
