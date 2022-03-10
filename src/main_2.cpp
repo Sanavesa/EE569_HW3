@@ -54,6 +54,7 @@ Implementations.h
 #include <opencv2/xfeatures2d.hpp>
 #include <opencv2/xfeatures2d/nonfree.hpp>
 #include <opencv2/calib3d.hpp>
+#include "opencv2/core/utils/logger.hpp"
 
 #include "Image.h"
 #include "Implementations.h"
@@ -63,6 +64,9 @@ using namespace cv::xfeatures2d;
 
 int main(int argc, char *argv[])
 {
+    // Make OpenCV silent
+    utils::logging::setLogLevel(utils::logging::LogLevel::LOG_LEVEL_SILENT);
+
     // Read the console arguments
     // Check for proper syntax
     if (argc != 7)
@@ -97,41 +101,8 @@ int main(int argc, char *argv[])
 		return -1;
 
     // Calculate transformation matrices
-    auto leftControlPoints = FindControlPoints(leftInputImage, middleInputImage, 0.25f, -1);
-    auto rightControlPoints = FindControlPoints(rightInputImage, middleInputImage, 0.35f, -1);
-
-    // Left-Middle: Add custom control points, extra on top of SURF
-    std::get<0>(leftControlPoints).push_back(Point2f(511, 92));
-    std::get<1>(leftControlPoints).push_back(Point2f(365, 101));
-    std::get<0>(leftControlPoints).push_back(Point2f(470, 163));
-    std::get<1>(leftControlPoints).push_back(Point2f(331, 165));
-    std::get<0>(leftControlPoints).push_back(Point2f(376, 95));
-    std::get<1>(leftControlPoints).push_back(Point2f(243, 95));
-    std::get<0>(leftControlPoints).push_back(Point2f(375, 162));
-    std::get<1>(leftControlPoints).push_back(Point2f(242, 162));
-    std::get<0>(leftControlPoints).push_back(Point2f(217, 189));
-    std::get<1>(leftControlPoints).push_back(Point2f(71, 185));
-    std::get<0>(leftControlPoints).push_back(Point2f(522, 171));
-    std::get<1>(leftControlPoints).push_back(Point2f(376, 174));
-    std::get<0>(leftControlPoints).push_back(Point2f(391, 259));
-    std::get<1>(leftControlPoints).push_back(Point2f(260, 256));
-    // Right-Middle: Add custom control points, extra on top of SURF
-    std::get<0>(rightControlPoints).push_back(Point2f(213, 101));
-    std::get<1>(rightControlPoints).push_back(Point2f(365, 101));
-    std::get<0>(rightControlPoints).push_back(Point2f(180, 165));
-    std::get<1>(rightControlPoints).push_back(Point2f(331, 165));
-    std::get<0>(rightControlPoints).push_back(Point2f(79, 86));
-    std::get<1>(rightControlPoints).push_back(Point2f(243, 95));
-    std::get<0>(rightControlPoints).push_back(Point2f(81, 159));
-    std::get<1>(rightControlPoints).push_back(Point2f(242, 162));
-    std::get<0>(rightControlPoints).push_back(Point2f(352, 179));
-    std::get<1>(rightControlPoints).push_back(Point2f(517, 176));
-    std::get<0>(rightControlPoints).push_back(Point2f(226, 175));
-    std::get<1>(rightControlPoints).push_back(Point2f(376, 174));
-    std::get<0>(rightControlPoints).push_back(Point2f(103, 262));
-    std::get<1>(rightControlPoints).push_back(Point2f(260, 256));
-    std::get<0>(rightControlPoints).push_back(Point2f(265, 231));
-    std::get<1>(rightControlPoints).push_back(Point2f(416, 232));
+    auto leftControlPoints = FindControlPoints(leftInputImage, middleInputImage, 40);
+    auto rightControlPoints = FindControlPoints(rightInputImage, middleInputImage, 25);
 
     // Visualize the control points and export them as images
     imwrite("left-mid.png", std::get<2>(leftControlPoints));
@@ -167,7 +138,7 @@ int main(int argc, char *argv[])
     // Hold the occupied pixels, so we can average out if more than one image draws to the same location
     std::unordered_set<std::pair<size_t, size_t>, PairHash> occupiedPixels;
 
-    // Blit each image into the canvas
+    // Blit each image into the canvas using inverse address mapping
     BlitInverse(leftInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels, left2MiddleMat);
     BlitInverse(rightInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels, right2MiddleMat);
 

@@ -5,6 +5,8 @@
 
 #include <iostream>
 #include <unordered_set>
+#include <vector>
+#include <algorithm>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
@@ -442,8 +444,8 @@ void ApplyInverseMapping(const Image &src, Image &dest, const Mat matrix, const 
 // Computes the H transformation matrix given a set of control points
 Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Point2f> destPoints)
 {
-    // H\lambda [3x3] * src [x,y,1] = dest [x,y,1]
-    const int pointsCount = srcPoints.size();
+    // H\lambda [3x3] = dest [x,y,1] * inverse(src [x,y,1])
+    const size_t pointsCount = srcPoints.size();
     double *srcArray = new double[3 * pointsCount];
     double *destArray = new double[3 * pointsCount];
     for (int i = 0; i < pointsCount; i++)
@@ -457,59 +459,57 @@ Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Poi
         destArray[i + 2 * pointsCount] = 1.0;
     }
 
-    Mat srcMat(3, pointsCount, CV_64FC1, srcArray);
-    Mat destMat(3, pointsCount, CV_64FC1, destArray);
+    Mat srcMat(3, static_cast<int>(pointsCount), CV_64FC1, srcArray);
+    Mat destMat(3, static_cast<int>(pointsCount), CV_64FC1, destArray);
     Mat srcInvMat;
-    invert(srcMat, srcInvMat, DECOMP_SVD);
+    invert(srcMat, srcInvMat, DECOMP_SVD); // pseudo inverse
     Mat h = destMat * srcInvMat;
 
     return h;
 }
 
-// Computes and finds the best control points that maps fromImage to the toImage with the specified threshold (lower=better quality) with the specified number of points (-1 for infinite).
+// Computes and finds the best control points that maps fromImage to the toImage with the specified number of points (-1 for all points).
 // The output tuple is [fromPoints, toPoints, visualizeImg]
 // Credit: OpenCV Documentation
-std::tuple<std::vector<Point2f>, std::vector<Point2f>, Mat> FindControlPoints(const Image &fromImage, const Image &toImage, const float ratioThreshold = 0.5f, const int maxPointsCount = -1)
+std::tuple<std::vector<Point2f>, std::vector<Point2f>, Mat> FindControlPoints(const Image &fromImage, const Image &toImage, const int maxPointsCount = -1)
 {
     // Load images as OpenCV Mat
     Mat fromMat = RGBImageToMat(fromImage);
     Mat toMat = RGBImageToMat(toImage);
 
     // Use SURF to detect control points (the key points)
-    constexpr double hessianThreshold = 400;
-    constexpr int nOctaves = 4;
-    constexpr int nOctaveLayers = 12;
+    constexpr double hessianThreshold = 300;
+    constexpr int nOctaves = 3;
+    constexpr int nOctaveLayers = 6;
     Ptr<SURF> detector = SURF::create(hessianThreshold, nOctaveLayers, nOctaveLayers);
     std::vector<KeyPoint> fromKeypoints, toKeypoints;
     Mat fromDescriptors, toDescriptors;
     detector->detectAndCompute(fromMat, noArray(), fromKeypoints, fromDescriptors);
     detector->detectAndCompute(toMat, noArray(), toKeypoints, toDescriptors);
 
-    // Use a bruteforce based matcher to match the computed detectors, and use a K-nearest neighbors to perform the pairing
+    // Use a bruteforce based matcher to match the computed detectors
     Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::BRUTEFORCE);
-    std::vector<std::vector<DMatch>> knnMatches;
-    matcher->knnMatch(fromDescriptors, toDescriptors, knnMatches, 2);
-
-    // Select only the matches that are similar, which is done via a similarity check based upon a ratio
-    std::vector<Point2f> fromPoints, toPoints;
     std::vector<DMatch> matches;
-    for (size_t i = 0; i < knnMatches.size(); i++)
+    matcher->match(fromDescriptors, toDescriptors, matches);
+
+    // After finding the matches using a bruteforce approach, sort the matches based on similarity distance between each pair
+    // In other words, a smaller distance represents a similar match, thus we will pick only the top N best matches based on their distance
+    std::sort(matches.begin(), matches.end(), [](DMatch match1, DMatch match2) { return match1.distance < match2.distance;});
+
+    // Extract the control points from the matches
+    std::vector<DMatch> filteredMatches;
+    std::vector<Point2f> fromPoints, toPoints;
+    for (size_t i = 0; i < std::min(static_cast<int>(matches.size()), maxPointsCount); i++)
     {
-        if (knnMatches[i][0].distance < ratioThreshold * knnMatches[i][1].distance)
-        {
-            if (maxPointsCount == -1 || fromPoints.size() < maxPointsCount)
-            {
-                fromPoints.push_back(fromKeypoints[knnMatches[i][0].queryIdx].pt);
-                toPoints.push_back(toKeypoints[knnMatches[i][0].trainIdx].pt);
-                matches.push_back(knnMatches[i][0]);
-            }
-        }
+        filteredMatches.push_back(matches[i]);
+        fromPoints.push_back(fromKeypoints[matches[i].queryIdx].pt);
+        toPoints.push_back(toKeypoints[matches[i].trainIdx].pt);
     }
-    std::cout << "Number of matches: " << matches.size() << std::endl;
+    std::cout << "Number of matches: " << matches.size() << " but selected only " << filteredMatches.size() << std::endl;
 
     // Generate an image to show the visualization of control points
     Mat visualizationMat;
-    drawMatches(fromMat, fromKeypoints, toMat, toKeypoints, matches, visualizationMat, Scalar::all(-1), Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+    drawMatches(fromMat, fromKeypoints, toMat, toKeypoints, filteredMatches, visualizationMat, Scalar::all(-1), Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 
     return std::make_tuple(fromPoints, toPoints, visualizationMat);
 }
@@ -562,7 +562,7 @@ void Blit(const Image& src, Image& dest, const size_t offsetX, const size_t offs
                 else
                 {
                     for (size_t c = 0; c < src.channels; c++)
-                        dest(y, x, c) = Saturate((double)dest(y, x, c) * 0.25 + (double)src(v, u, c) * 0.75);
+                        dest(y, x, c) = Saturate((double)dest(y, x, c) * 0.5 + (double)src(v, u, c) * 0.5);
                 }
 
                 occupiedPixels.insert(pos);
@@ -579,19 +579,6 @@ void BlitInverse(const Image& src, Image& dest, const size_t offsetX, const size
     {
         for (size_t u = 0; u < dest.width; u++)
         {
-            /*
-            // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
-            const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
-            const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
-            const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
-
-            // Only copy pixels if the pixel is within bounds
-            if (src.IsInBounds(srcY, srcX))
-            {
-                for (size_t c = 0; c < dest.channels; c++)
-                    dest(v, u, c) = src(srcY, srcX, c);
-            }
-            */
             // // Apply matrix to the given x,y
             double point[3] = {static_cast<double>(u) - offsetX, static_cast<double>(v) - offsetY, 1.0};
             Mat pointMat(3, 1, CV_64F, point);
@@ -619,15 +606,11 @@ void BlitInverse(const Image& src, Image& dest, const size_t offsetX, const size
                 else
                 {
                     for (size_t c = 0; c < src.channels; c++)
-                        dest(v, u, c) = Saturate(((double)dest(v, u, c) + (double)src(srcY, srcX, c)) / 2.0);
+                        dest(v, u, c) = Saturate((double)dest(v, u, c) * 0.5 + (double)src(srcY, srcX, c) * 0.5);
                 }
 
                 occupiedPixels.insert(pos);
             }
-            // else
-            // {
-            //     std::cout << "Out of bounds. Should not happen: " << u << ", " << v << " from " << srcX << ", " << srcY << std::endl;
-            // }
         }
     }
 }
