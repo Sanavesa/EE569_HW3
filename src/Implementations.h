@@ -677,5 +677,17 @@ void ApplyThinning(Image &image, const std::vector<Filter> &filters1, const std:
         }
 }
 
+// Inverts the given image (black to white, white to black)
+Image Invert(const Image& image)
+{
+    Image result(image);
+
+    for (size_t v = 0; v < result.height; v++)
+        for (size_t u = 0; u < result.width; u++)
+            for (size_t c = 0; c < result.channels; c++)
+                result(v, u, c) = static_cast<uint8_t>(255 - static_cast<int32_t>(image(v, u, c)));
+
+    return result;
+}
 
 #endif // IMPLEMENTATIONS_H

@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
     if (!binarizedImage.ExportRAW(inputFilenameNoExtension + "_binarized.raw"))
         return -1;
 
-    // Create a fiter for first stage
+    // Create a thinning conditional filter for first stage
     std::vector<Filter> filters1;
     filters1.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 0}));
     filters1.push_back(Filter(3, {0, 1, 0, 1, 1, 0, 0, 0, 0}));
@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
     filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 1}));
     filters1.push_back(Filter(3, {1, 0, 1, 1, 1, 1, 1, 1, 1}));
 
-    // Create a filter for second stage
+    // Create a thinning unconditional filter for second stage
     std::vector<Filter> filters2;
     filters2.push_back(Filter(3, {0, 0, F_M, 0, F_M, 0, 0, 0, 0}));
     filters2.push_back(Filter(3, {F_M, 0, 0, 0, F_M, 0, 0, 0, 0}));

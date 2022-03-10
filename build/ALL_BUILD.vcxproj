@@ -181,6 +181,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Project>{497C26FF-9F40-337F-801F-45B76604A3EA}</Project>
       <Name>EE569_HW3_Q3a</Name>
     </ProjectReference>
+    <ProjectReference Include="D:\Programming\Github\EE569_HW3\build\EE569_HW3_Q3b.vcxproj">
+      <Project>{38A2DAF2-3A25-3F13-976E-F6B4B322CC06}</Project>
+      <Name>EE569_HW3_Q3b</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
