@@ -78,7 +78,6 @@ void Filter::Print() const
 bool Filter::Match01(const Image &image, const int32_t row, const int32_t column, const size_t channel, const BoundaryExtension &boundaryExtension) const
 {
     const int32_t centerIndex = size / 2;
-    bool match = true;
 
     for (int32_t dv = -centerIndex; dv <= centerIndex; dv++)
         for (int32_t du = -centerIndex; du <= centerIndex; du++)
@@ -86,11 +85,23 @@ bool Filter::Match01(const Image &image, const int32_t row, const int32_t column
             const int32_t filterCase = data[centerIndex + dv][centerIndex + du];
             const uint8_t intensity = image.GetPixelValue(row + dv, column + du, channel, boundaryExtension); // [0, 255]
 
-            // Generic cases (0/1)
-            match &= (filterCase * 255) == intensity;
+            switch(filterCase)
+            {
+                case 0:
+                    if (intensity != 0)
+                        return false;
+                    break;
+                case 1:
+                    if (intensity != 255)
+                        return false;
+                    break;
+                default:
+                    std::cout << "Invalid filter case used: " << filterCase << std::endl;
+                    break;
+            }
         }
 
-    return match;
+    return true;
 }
 
 // Applies the filter on the specified center pixel of the given image, returns true if matches, false otherwise
@@ -98,7 +109,6 @@ bool Filter::Match(const Image &image, const int32_t row, const int32_t column, 
 {
     const int32_t centerIndex = size / 2;
     const int32_t centerIntensity = image.GetPixelValue(row, column, channel, boundaryExtension); // [0, 255]
-    bool match = true;
 
     // Used to compute if ABC constraint is met, if any
     uint32_t unionABCValue = 0;
@@ -110,31 +120,42 @@ bool Filter::Match(const Image &image, const int32_t row, const int32_t column, 
             const int32_t filterCase = data[centerIndex + dv][centerIndex + du];
             const uint8_t intensity = image.GetPixelValue(row + dv, column + du, channel, boundaryExtension); // [0, 255]
 
-            // Skip dont cares
-            if (filterCase == F_DC)
-                continue;
-
-            // Special Case: M
-            if (filterCase == F_M)
+            switch(filterCase)
             {
-                match &= intensity == centerIntensity;
-            }
-            // Special Cases: ABC
-            else if (filterCase == F_A || filterCase == F_B || filterCase == F_C)
-            {
-                unionABCValue += intensity;
-                hasABC = true;
-            }
-            // Generic cases (0/1)
-            else
-            {
-                match &= (filterCase * 255) == intensity;
+                // Generic 0 case
+                case 0:
+                    if (intensity != 0)
+                        return false;
+                    break;
+                // Generic 1 case
+                case 1:
+                    if (intensity != 255)
+                        return false;
+                    break;
+                // Skip dont cares
+                case F_DC:
+                    break;
+                // Special Case: M, must match center
+                case F_M:
+                    if (intensity != centerIntensity)
+                        return false;
+                    break;
+                // Special Cases: ABC, one must be true atleast
+                case F_A:
+                case F_B:
+                case F_C:
+                    unionABCValue += intensity;
+                    hasABC = true;
+                    break;
+                default:
+                    std::cout << "Invalid filter case used: " << filterCase << std::endl;
+                    break;
             }
         }
 
     // Ensure that A or B or C >= 1 is satisfied
     if (hasABC && unionABCValue == 0)
-        match = false;
+        return false;
 
-    return match;
+    return true;
 }

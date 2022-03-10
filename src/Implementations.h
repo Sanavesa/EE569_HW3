@@ -648,7 +648,7 @@ void ApplyThinning(Image &image, const std::vector<Filter> &filters1, const std:
                 if (filter.Match01(image, static_cast<int32_t>(v), static_cast<int32_t>(u), 0, BoundaryExtension::Zero))
                 {
                     marks(v, u, 0) = 255;
-                    // break; // no need to check for the other filters
+                    break; // no need to check for the other filters
                 }
             }
 

@@ -70,9 +70,9 @@ int main(int argc, char *argv[])
 	// const uint32_t height = (uint32_t)atoi(argv[3]);
 	// const uint8_t channels = (uint8_t)atoi(argv[4]);
 
-    const std::string inputFilenameNoExtension = "jar";
-    const uint32_t width = 252;
-    const uint32_t height = 252;
+    const std::string inputFilenameNoExtension = "flower";
+    const uint32_t width = 247;
+    const uint32_t height = 247;
     const uint8_t channels = 1;
 
     // Load input image
@@ -174,7 +174,7 @@ int main(int argc, char *argv[])
     filters2.push_back(Filter(3, {F_DC, 0, F_M, F_M, F_M, 0, 0, F_M, F_DC}));
     filters2.push_back(Filter(3, {F_M, 0, F_DC, 0, F_M, F_M, F_DC, F_M, 0}));
 
-    constexpr int maxIterations = 100;
+    constexpr int maxIterations = 250;
     bool converged = false;
     Image img(binarizedImage);
 
