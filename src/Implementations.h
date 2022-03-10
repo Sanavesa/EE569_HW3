@@ -19,6 +19,7 @@
 
 #include "Image.h"
 #include "Utility.h"
+#include "Filter.h"
 
 using namespace cv;
 using namespace cv::xfeatures2d;
@@ -613,6 +614,59 @@ void BlitInverse(const Image& src, Image& dest, const size_t offsetX, const size
             }
         }
     }
+}
+
+// Binarizes the grayscale image for Q3a
+Image BinarizeImage(const Image& image)
+{
+    // Find maximum pixel intensity
+    uint8_t maxIntensity = 0;
+    for (size_t v = 0; v < image.height; v++)
+        for (size_t u = 0; u < image.width; u++)
+            maxIntensity = std::max(maxIntensity, image(v, u, 0));
+    
+    // Binarize
+    Image binarized(image);
+    for (size_t v = 0; v < image.height; v++)
+        for (size_t u = 0; u < image.width; u++)
+            binarized(v, u, 0) = (image(v, u, 0) >= 0.5 * maxIntensity) ? 255 : 0;
+
+    return binarized;
+}
+
+// Apply a single round of thinning on the given image
+void ApplyThinning(Image &image, const std::vector<Filter> &filters1, const std::vector<Filter> &filters2, bool& converged)
+{
+    // Stage1: Generate marks
+    Image marks(image.width, image.height, 1);
+    marks.Fill(0);
+    
+    for (size_t v = 0; v < image.height; v++)
+        for (size_t u = 0; u < image.width; u++)
+            for (const Filter& filter : filters1)
+            {
+                if (filter.Match01(image, static_cast<int32_t>(v), static_cast<int32_t>(u), 0, BoundaryExtension::Zero))
+                {
+                    marks(v, u, 0) = 255;
+                    // break; // no need to check for the other filters
+                }
+            }
+
+    // Stage2: Generate output image
+    converged = true;
+    for (size_t v = 0; v < marks.height; v++)
+        for (size_t u = 0; u < marks.width; u++)
+        {
+            bool matched = false;
+            for (const Filter& filter : filters2)
+                matched |= filter.Match(marks, static_cast<int32_t>(v), static_cast<int32_t>(u), 0, BoundaryExtension::Zero);
+
+            if (!matched)
+            {
+                image(v, u, 0) = 0;
+                converged = false;
+            }
+        }
 }
 
 

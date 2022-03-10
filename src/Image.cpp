@@ -264,3 +264,12 @@ void Image::Fill(const uint8_t value)
             for (size_t c = 0; c < channels; c++)
                 data[v][u][c] = value;
 }
+
+// Copy the other image
+void Image::Copy(const Image &other)
+{
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
+            for (size_t c = 0; c < channels; c++)
+                data[v][u][c] = other.data[v][u][c];
+}

@@ -62,6 +62,9 @@ public:
 
     // Sets the entire image across all channels to the specified value
     void Fill(const uint8_t value);
+
+    // Copy the other image
+    void Copy(const Image &other);
 };
 
 #endif // IMAGE_H
