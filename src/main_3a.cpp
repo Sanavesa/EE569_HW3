@@ -56,24 +56,19 @@ int main(int argc, char *argv[])
 {
     // Read the console arguments
     // Check for proper syntax
-    // if (argc != 5)
-    // {
-    //     std::cout << "Syntax Error - Arguments must be:" << std::endl;
-    //     std::cout << "programName inputFilenameNoExtension width height channels" << std::endl;
-    //     std::cout << "inputFilenameNoExtension is the .raw image without the extension" << std::endl;
-    //     return -1;
-    // }
+    if (argc != 5)
+    {
+        std::cout << "Syntax Error - Arguments must be:" << std::endl;
+        std::cout << "programName inputFilenameNoExtension width height channels" << std::endl;
+        std::cout << "inputFilenameNoExtension is the .raw image without the extension" << std::endl;
+        return -1;
+    }
 
 	// Parse console arguments
-	// const std::string inputFilenameNoExtension = argv[1];
-	// const uint32_t width = (uint32_t)atoi(argv[2]);
-	// const uint32_t height = (uint32_t)atoi(argv[3]);
-	// const uint8_t channels = (uint8_t)atoi(argv[4]);
-
-    const std::string inputFilenameNoExtension = "flower";
-    const uint32_t width = 247;
-    const uint32_t height = 247;
-    const uint8_t channels = 1;
+	const std::string inputFilenameNoExtension = argv[1];
+	const uint32_t width = (uint32_t)atoi(argv[2]);
+	const uint32_t height = (uint32_t)atoi(argv[3]);
+	const uint8_t channels = (uint8_t)atoi(argv[4]);
 
     // Load input image
     Image inputImage(width, height, channels);
@@ -85,7 +80,7 @@ int main(int argc, char *argv[])
     if (!binarizedImage.ExportRAW(inputFilenameNoExtension + "_binarized.raw"))
         return -1;
 
-    // Create a fiter
+    // Create a fiter for first stage
     std::vector<Filter> filters1;
     filters1.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 0}));
     filters1.push_back(Filter(3, {0, 1, 0, 1, 1, 0, 0, 0, 0}));
@@ -134,7 +129,7 @@ int main(int argc, char *argv[])
     filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 1}));
     filters1.push_back(Filter(3, {1, 0, 1, 1, 1, 1, 1, 1, 1}));
 
-    // Create a filter
+    // Create a filter for second stage
     std::vector<Filter> filters2;
     filters2.push_back(Filter(3, {0, 0, F_M, 0, F_M, 0, 0, 0, 0}));
     filters2.push_back(Filter(3, {F_M, 0, 0, 0, F_M, 0, 0, 0, 0}));
@@ -174,14 +169,15 @@ int main(int argc, char *argv[])
     filters2.push_back(Filter(3, {F_DC, 0, F_M, F_M, F_M, 0, 0, F_M, F_DC}));
     filters2.push_back(Filter(3, {F_M, 0, F_DC, 0, F_M, F_M, F_DC, F_M, 0}));
 
-    constexpr int maxIterations = 250;
+    constexpr int maxIterations = 100;
     bool converged = false;
     Image img(binarizedImage);
 
     int iteration = 0;
     while (!converged && iteration < maxIterations)
     {
-        ApplyThinning(img, filters1, filters2, converged);
+        Image output = ApplyThinning(img, filters1, filters2, converged);
+        img.Copy(output);
         if (!img.ExportRAW(inputFilenameNoExtension + "_thin_" + std::to_string(iteration + 1) + ".raw"))
             return -1;
         iteration++;

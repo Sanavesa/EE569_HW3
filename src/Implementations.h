@@ -627,15 +627,16 @@ Image BinarizeImage(const Image& image)
     
     // Binarize
     Image binarized(image);
+    const double threshold = 0.5 * static_cast<double>(maxIntensity);
     for (size_t v = 0; v < image.height; v++)
         for (size_t u = 0; u < image.width; u++)
-            binarized(v, u, 0) = (image(v, u, 0) >= 0.5 * maxIntensity) ? 255 : 0;
+            binarized(v, u, 0) = (static_cast<double>(image(v, u, 0)) > threshold) ? 255 : 0;
 
     return binarized;
 }
 
 // Apply a single round of thinning on the given image
-void ApplyThinning(Image &image, const std::vector<Filter> &filters1, const std::vector<Filter> &filters2, bool& converged)
+Image ApplyThinning(const Image &image, const std::vector<Filter> &filters1, const std::vector<Filter> &filters2, bool& converged)
 {
     // Stage1: Generate marks
     Image marks(image.width, image.height, 1);
@@ -653,20 +654,40 @@ void ApplyThinning(Image &image, const std::vector<Filter> &filters1, const std:
             }
 
     // Stage2: Generate output image
+    Image output(image.width, image.height, 1);
+    output.Fill(0);
+
     converged = true;
     for (size_t v = 0; v < marks.height; v++)
         for (size_t u = 0; u < marks.width; u++)
         {
-            bool matched = false;
-            for (const Filter& filter : filters2)
-                matched |= filter.Match(marks, static_cast<int32_t>(v), static_cast<int32_t>(u), 0, BoundaryExtension::Zero);
-
-            if (!matched)
+            if (marks(v, u, 0) == 255)
             {
-                image(v, u, 0) = 0;
-                converged = false;
+                bool matched = false;
+                for (const Filter& filter : filters2)
+                {
+                    matched |= filter.Match(marks, static_cast<int32_t>(v), static_cast<int32_t>(u), 0, BoundaryExtension::Zero);
+                    if (matched)
+                        break; // no need to check for the other filters
+                }
+
+                if (matched)
+                {
+                    output(v, u, 0) = image(v, u, 0);
+                }
+                else
+                {
+                    output(v, u, 0) = 0;
+                    converged = false;
+                }
+            }
+            else
+            {
+                output(v, u, 0) = image(v, u, 0);
             }
         }
+
+    return output;
 }
 
 
