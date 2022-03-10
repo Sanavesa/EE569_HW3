@@ -169,15 +169,14 @@ int main(int argc, char *argv[])
     filters2.push_back(Filter(3, {F_DC, 0, F_M, F_M, F_M, 0, 0, F_M, F_DC}));
     filters2.push_back(Filter(3, {F_M, 0, F_DC, 0, F_M, F_M, F_DC, F_M, 0}));
 
-    constexpr int maxIterations = 100;
+    constexpr int maxIterations = 200;
     bool converged = false;
     Image img(binarizedImage);
 
     int iteration = 0;
     while (!converged && iteration < maxIterations)
     {
-        Image output = ApplyThinning(img, filters1, filters2, converged);
-        img.Copy(output);
+        ApplyThinning(img, filters1, filters2, converged);
         if (!img.ExportRAW(inputFilenameNoExtension + "_thin_" + std::to_string(iteration + 1) + ".raw"))
             return -1;
         iteration++;

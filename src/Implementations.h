@@ -636,7 +636,7 @@ Image BinarizeImage(const Image& image)
 }
 
 // Apply a single round of thinning on the given image
-Image ApplyThinning(const Image &image, const std::vector<Filter> &filters1, const std::vector<Filter> &filters2, bool& converged)
+void ApplyThinning(Image &image, const std::vector<Filter> &filters1, const std::vector<Filter> &filters2, bool& converged)
 {
     // Stage1: Generate marks
     Image marks(image.width, image.height, 1);
@@ -654,9 +654,6 @@ Image ApplyThinning(const Image &image, const std::vector<Filter> &filters1, con
             }
 
     // Stage2: Generate output image
-    Image output(image.width, image.height, 1);
-    output.Fill(0);
-
     converged = true;
     for (size_t v = 0; v < marks.height; v++)
         for (size_t u = 0; u < marks.width; u++)
@@ -671,23 +668,13 @@ Image ApplyThinning(const Image &image, const std::vector<Filter> &filters1, con
                         break; // no need to check for the other filters
                 }
 
-                if (matched)
+                if (!matched)
                 {
-                    output(v, u, 0) = image(v, u, 0);
-                }
-                else
-                {
-                    output(v, u, 0) = 0;
+                    image(v, u, 0) = 0;
                     converged = false;
                 }
             }
-            else
-            {
-                output(v, u, 0) = image(v, u, 0);
-            }
         }
-
-    return output;
 }
 
 
