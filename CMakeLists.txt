@@ -13,11 +13,13 @@ include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 add_executable(EE569_HW3_Q1 src/main_1.cpp src/Image.h src/Image.cpp src/Utility.h src/Utility.cpp src/Implementations.h)
 add_executable(EE569_HW3_Q2 src/main_2.cpp src/Image.h src/Image.cpp src/Utility.h src/Utility.cpp src/Implementations.h)
+add_executable(EE569_HW3_Q3a src/main_3a.cpp src/Image.h src/Image.cpp src/Utility.h src/Utility.cpp src/Implementations.h)
 
 include_directories(SYSTEM ./src)
 
 target_link_libraries( EE569_HW3_Q1 ${OpenCV_LIBS} )
 target_link_libraries( EE569_HW3_Q2 ${OpenCV_LIBS} )
+target_link_libraries( EE569_HW3_Q3a ${OpenCV_LIBS} )
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
