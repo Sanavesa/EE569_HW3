@@ -46,11 +46,12 @@ Implementations.h
 */
 
 #include <iostream>
+
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+
 #include "Image.h"
 #include "Implementations.h"
-
 
 int main(int argc, char *argv[])
 {
