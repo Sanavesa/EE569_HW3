@@ -18,6 +18,9 @@ std::pair<double, double> CartesianToImageCoord(const Image &image, const double
 // Converts the given RGB image into an OpenCV Mat object
 cv::Mat RGBImageToMat(const Image &image);
 
+// Converts an image from RGB to Grayscale
+Image RGB2Grayscale(const Image &image);
+
 // Credit: https://stackoverflow.com/questions/15160889/how-can-i-make-an-unordered-set-of-pairs-of-integers-in-c
 // Used to make a std::pair hashable for std::unordered_set
 struct PairHash

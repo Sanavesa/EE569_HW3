@@ -9,20 +9,20 @@
 
 #################################################################################################################
 
-    CONSOLE APPLICATION : Defect detection and counting
+    CONSOLE APPLICATION : Object Segmentation and Analysis
 	
 #################################################################################################################
 
-This file will load a grayscale image and detect any defects as well as count them and then finally correct the
-input image and export without any defects.
+This file will load an RGB image, converted into it grayscale and then compute the number of objects (beans)
+present in the image. Finally, it will also output a segmentation mask for the objects.
 
 #################################################################################################################
 
 Arguments:
-    programName inputFilenameNoExtension width height channels [defectSizeThreshold=50]
+    programName inputFilenameNoExtension width height channels
     inputFilenameNoExtension is the .raw image without the extension
 Example:
-    .\EE569_HW3_Q3b.exe deer 550 691 1 50
+    .\EE569_HW3_Q3c.exe beans 494 82 3
 
 ########################################### Notes on Arguments ####################################################
 
@@ -53,10 +53,10 @@ Implementations.h
 #include "Filter.h"
 
 // Explores recurisvely the neighbors of the specified position, while ensuring no position is visited twice
-void Explore(const Image& image, const size_t row, const size_t column, const uint32_t defectSizeThreshold, std::unordered_set<std::pair<size_t, size_t>, PairHash>& visited)
+void Explore(const Image& image, const size_t row, const size_t column, std::unordered_set<std::pair<size_t, size_t>, PairHash>& visited, const uint8_t intensity, const int32_t sizeLimit)
 {
-    // If visited is already so large, abort early
-    if (visited.size() >= defectSizeThreshold)
+    // If we already reached the size limit of exploration, abort
+    if (sizeLimit > 0 && visited.size() >= sizeLimit)
         return;
 
     const auto pair = std::make_pair(row, column);
@@ -78,36 +78,31 @@ void Explore(const Image& image, const size_t row, const size_t column, const ui
 
             const int32_t neighborRow = static_cast<int32_t>(row) + dv;
             const int32_t neighborColumn = static_cast<int32_t>(column) + du;
-            // Only explore in-bounds black neighboring dots
-            if (image.IsInBounds(neighborRow, neighborColumn) && image.GetPixelValue(neighborRow, neighborColumn) == 0)
-                Explore(image, static_cast<size_t>(neighborRow), static_cast<size_t>(neighborColumn), defectSizeThreshold, visited);
+            // Only explore in-bounds white neighboring dots
+            if (image.IsInBounds(neighborRow, neighborColumn) && image.GetPixelValue(neighborRow, neighborColumn) == intensity)
+            {
+                Explore(image, static_cast<size_t>(neighborRow), static_cast<size_t>(neighborColumn), visited, intensity, sizeLimit);
+            }
         }
     }
 }
 
 // Calculates the connected region of the given position
-std::unordered_set<std::pair<size_t, size_t>, PairHash> FindDefect(const Image& image, const size_t row, const size_t column, const uint32_t defectSizeThreshold)
+std::unordered_set<std::pair<size_t, size_t>, PairHash> FindIsland(const Image &image, const size_t row, const size_t column, const uint8_t intensity, const int32_t sizeLimit = -1)
 {
     std::unordered_set<std::pair<size_t, size_t>, PairHash> visited;
-    Explore(image, row, column, defectSizeThreshold, visited);
+    Explore(image, row, column, visited, intensity, sizeLimit);
     return visited;
-}
-
-// Removes the defect by setting all pixels in the defect to white (255)
-void RemoveDefect(Image& image, const std::unordered_set<std::pair<size_t, size_t>, PairHash> defects)
-{
-    for (const auto& [v, u] : defects)
-        image(v, u, 0) = 255;
 }
 
 int main(int argc, char *argv[])
 {
     // Read the console arguments
     // Check for proper syntax
-    if (argc != 5 && argc != 6)
+    if (argc != 5)
     {
         std::cout << "Syntax Error - Arguments must be:" << std::endl;
-        std::cout << "programName inputFilenameNoExtension width height channels [defectSizeThreshold=50]" << std::endl;
+        std::cout << "programName inputFilenameNoExtension width height channels" << std::endl;
         std::cout << "inputFilenameNoExtension is the .raw image without the extension" << std::endl;
         return -1;
     }
@@ -117,26 +112,28 @@ int main(int argc, char *argv[])
 	const uint32_t width = (uint32_t)atoi(argv[2]);
 	const uint32_t height = (uint32_t)atoi(argv[3]);
 	const uint8_t channels = (uint8_t)atoi(argv[4]);
-    uint32_t defectSizeThreshold = 50;
-
-    // Parse optional defectSizeThreshold console argument
-    if (argc == 6)
-        defectSizeThreshold = (uint32_t)atoi(argv[5]);
 
     // Load input image
     Image inputImage(width, height, channels);
 	if (!inputImage.ImportRAW(inputFilenameNoExtension + ".raw"))
 		return -1;
 
-    // Binarize the input image
-    Image binarizedInputImage = BinarizeImage(inputImage);
+    // Convert input image to grayscale
+    Image inputGrayscaleImage = RGB2Grayscale(inputImage);
+    if (!inputGrayscaleImage.ExportRAW(inputFilenameNoExtension + "_gray.raw"))
+        return -1;
+
+    // Binarize grayscale image
+    Image binarizedInputImage = BinarizeImage(inputGrayscaleImage, 220);
     if (!binarizedInputImage.ExportRAW(inputFilenameNoExtension + "_binarized.raw"))
         return -1;
 
-    // Invert the input image
-    Image invertedInputImage = Invert(binarizedInputImage);
-    if (!invertedInputImage.ExportRAW(inputFilenameNoExtension + "_inv_binarized.raw"))
+    // Invert image
+    Image invertedBinarizedInputImage = Invert(binarizedInputImage);
+    if (!invertedBinarizedInputImage.ExportRAW(inputFilenameNoExtension + "_inv_binarized.raw"))
         return -1;
+
+    // --- Shrinking
 
     // Create a shrinking conditional filter for first stage
     const std::vector<Filter> filters1 = GenerateShrinkingConditionalFilter();
@@ -144,9 +141,9 @@ int main(int argc, char *argv[])
     // Create a shrinking unconditional filter for second stage
     const std::vector<Filter> filters2 = GenerateThinningShrinkingUnconditionalFilter();
 
-    constexpr int maxIterations = 2000;
+    constexpr int maxIterations = 100;
     bool converged = false;
-    Image img(invertedInputImage);
+    Image img(invertedBinarizedInputImage);
 
     int iteration = 0;
     while (!converged && iteration < maxIterations)
@@ -165,27 +162,62 @@ int main(int argc, char *argv[])
             if (img(v, u, 0) == 255)
                 whiteDots.push_back(std::make_pair(v, u));
     std::cout << "There are " << whiteDots.size() << " white dots." << std::endl;
-    
-    // Count the defects by checking neighbors of each whiteDot in the original image (defect is <50 px)
-    // Also, remove the defects from the binarized image
-    Image correctedImage(binarizedInputImage);
-    std::vector<std::pair<size_t, size_t>> defects;
+
+    // Count the beans by checking neighbors of each whiteDot. Only count an island once
+    // island = connected component analysis
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> visited;
+    std::vector<std::pair<size_t, size_t>> beanPoints;
     for (const auto &[v, u] : whiteDots)
     {
-        const auto defect = FindDefect(binarizedInputImage, v, u, defectSizeThreshold);
-        if (defect.size() < defectSizeThreshold)
+        const auto pair = std::make_pair(v, u);
+        // If not already visited, visit
+        if (visited.find(pair) == visited.end())
         {
-            std::cout << "Detected defect at (" << u << ", " << v << ") of size " << defect.size() << std::endl;
-            RemoveDefect(correctedImage, defect);
-            defects.push_back(std::make_pair(v, u));
+            Explore(img, v, u, visited, 255, -1);
+            beanPoints.push_back(std::make_pair(v, u));
         }
     }
-    std::cout << "There are " << defects.size() << " defects present." << std::endl;
+    std::cout << "There are " << beanPoints.size() << " beans present." << std::endl;
 
-    // Export corrected image
-    if (!correctedImage.ExportRAW(inputFilenameNoExtension + "_corrected.raw"))
+    // Construct segmentation mask
+    Image segmentationImage(invertedBinarizedInputImage);
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> segmentationVisited;
+    for (size_t v = 0; v < segmentationImage.height; v++)
+    {
+        for (size_t u = 0; u < segmentationImage.width; u++)
+        {
+            // Skip white pixels
+            if (invertedBinarizedInputImage(v, u, 0) == 255)
+                continue;
+
+            // Skip visited pixels
+            const std::pair<size_t, size_t> pair = std::make_pair(v, u);
+            if (segmentationVisited.find(pair) != segmentationVisited.end())
+                continue;
+
+            // Only fill closed-in black islands with white
+            const auto island = FindIsland(invertedBinarizedInputImage, v, u, invertedBinarizedInputImage(v, u, 0), 200);
+            for (const auto& point : island)
+            {
+                segmentationVisited.insert(point);
+                if (island.size() < 200)
+                    segmentationImage(point.first, point.second) = 255;
+            }
+        }
+    }
+
+    // Export segmentation mask
+    if (!segmentationImage.ExportRAW(inputFilenameNoExtension + "_segmask.raw"))
         return -1;
+
+    // Using the bean points, get each beans connected region size
+    for (const auto &[v, u] : beanPoints)
+    {
+        const auto island = FindIsland(segmentationImage, v, u, segmentationImage(v, u, 0));
+        std::cout << "Bean at " << u << ", " << v << " has a size of " << island.size() << std::endl;
+    }
 
     std::cout << "Done" << std::endl;
     return 0;
 }
+

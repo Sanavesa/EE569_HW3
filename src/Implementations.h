@@ -616,6 +616,18 @@ void BlitInverse(const Image& src, Image& dest, const size_t offsetX, const size
     }
 }
 
+// Binarizes the grayscale image for Q3a using a threshold [0, 255]
+Image BinarizeImage(const Image& image, const double threshold)
+{
+    // Binarize
+    Image binarized(image);
+    for (size_t v = 0; v < image.height; v++)
+        for (size_t u = 0; u < image.width; u++)
+            binarized(v, u, 0) = (static_cast<double>(image(v, u, 0)) > threshold) ? 255 : 0;
+
+    return binarized;
+}
+
 // Binarizes the grayscale image for Q3a
 Image BinarizeImage(const Image& image)
 {
@@ -626,17 +638,12 @@ Image BinarizeImage(const Image& image)
             maxIntensity = std::max(maxIntensity, image(v, u, 0));
     
     // Binarize
-    Image binarized(image);
     const double threshold = 0.5 * static_cast<double>(maxIntensity);
-    for (size_t v = 0; v < image.height; v++)
-        for (size_t u = 0; u < image.width; u++)
-            binarized(v, u, 0) = (static_cast<double>(image(v, u, 0)) > threshold) ? 255 : 0;
-
-    return binarized;
+    return BinarizeImage(image, threshold);
 }
 
-// Apply a single round of thinning on the given image
-void ApplyThinning(Image &image, const std::vector<Filter> &filters1, const std::vector<Filter> &filters2, bool& converged)
+// Apply a single round of morphological processing on the given image
+void ApplyMorphological(Image &image, const std::vector<Filter> &filters1, const std::vector<Filter> &filters2, bool& converged)
 {
     // Stage1: Generate marks
     Image marks(image.width, image.height, 1);
@@ -677,6 +684,168 @@ void ApplyThinning(Image &image, const std::vector<Filter> &filters1, const std:
         }
 }
 
+// Return a thinning conditional filter for first stage
+std::vector<Filter> GenerateThinningConditionalFilter()
+{
+    std::vector<Filter> filters;
+    filters.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 0, 1, 1, 1, 1, 1, 1, 1}));
+    return filters;
+}
+
+// Create a shrinking conditional filter for first stage
+std::vector<Filter> GenerateShrinkingConditionalFilter()
+{
+    std::vector<Filter> filters;
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 0, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 0, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 0, 1, 1, 1, 1, 1, 1, 1}));
+    return filters;
+}
+
+// Create a thinning unconditional filter for second stage
+std::vector<Filter> GenerateThinningShrinkingUnconditionalFilter()
+{
+    std::vector<Filter> filters;
+    filters.push_back(Filter(3, {0, 0, F_M, 0, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {F_M, 0, 0, 0, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, 0, F_M, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, F_M, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, F_M, 0, F_M, F_M, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, F_M, F_M, 0, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {F_M, F_M, 0, 0, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {F_M, 0, 0, F_M, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, F_M, F_M, 0, F_M, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, F_M, F_M, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, 0, F_M, F_M}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, F_M, 0, 0, F_M}));
+    filters.push_back(Filter(3, {0, F_M, F_M, F_M, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {F_M, F_M, 0, 0, F_M, F_M, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, F_M, 0, 0, F_M, F_M, 0, 0, F_M}));
+    filters.push_back(Filter(3, {0, 0, F_M, 0, F_M, F_M, 0, F_M, 0}));
+    filters.push_back(Filter(3, {0, F_A, F_M, 0, F_M, F_B, F_M, 0, 0}));
+    filters.push_back(Filter(3, {F_M, F_B, 0, F_A, F_M, 0, 0, 0, F_M}));
+    filters.push_back(Filter(3, {0, 0, F_M, F_A, F_M, 0, F_M, F_B, 0}));
+    filters.push_back(Filter(3, {F_M, 0, 0, 0, F_M, F_B, 0, F_A, F_M}));
+    filters.push_back(Filter(3, {F_M, F_M, F_DC, F_M, F_M, F_DC, F_DC, F_DC, F_DC}));
+    filters.push_back(Filter(3, {F_DC, F_M, 0, F_M, F_M, F_M, F_DC, 0, 0}));
+    filters.push_back(Filter(3, {0, F_M, F_DC, F_M, F_M, F_M, 0, 0, F_DC}));
+    filters.push_back(Filter(3, {0, 0, F_DC, F_M, F_M, F_M, 0, F_M, F_DC}));
+    filters.push_back(Filter(3, {F_DC, 0, 0, F_M, F_M, F_M, F_DC, F_M, 0}));
+    filters.push_back(Filter(3, {F_DC, F_M, F_DC, F_M, F_M, 0, 0, F_M, 0}));
+    filters.push_back(Filter(3, {0, F_M, 0, F_M, F_M, 0, F_DC, F_M, F_DC}));
+    filters.push_back(Filter(3, {0, F_M, 0, 0, F_M, F_M, F_DC, F_M, F_DC}));
+    filters.push_back(Filter(3, {F_DC, F_M, F_DC, 0, F_M, F_M, 0, F_M, 0}));
+    filters.push_back(Filter(3, {F_M, F_DC, F_M, F_DC, F_M, F_DC, F_A, F_B, F_C}));
+    filters.push_back(Filter(3, {F_M, F_DC, F_C, F_DC, F_M, F_B, F_M, F_DC, F_A}));
+    filters.push_back(Filter(3, {F_C, F_B, F_A, F_DC, F_M, F_DC, F_M, F_DC, F_M}));
+    filters.push_back(Filter(3, {F_A, F_DC, F_M, F_B, F_M, F_DC, F_C, F_DC, F_M}));
+    filters.push_back(Filter(3, {F_DC, F_M, 0, 0, F_M, F_M, F_M, 0, F_DC}));
+    filters.push_back(Filter(3, {0, F_M, F_DC, F_M, F_M, 0, F_DC, 0, F_M}));
+    filters.push_back(Filter(3, {F_DC, 0, F_M, F_M, F_M, 0, 0, F_M, F_DC}));
+    filters.push_back(Filter(3, {F_M, 0, F_DC, 0, F_M, F_M, F_DC, F_M, 0}));
+    return filters;
+}
+
 // Inverts the given image (black to white, white to black)
 Image Invert(const Image& image)
 {
@@ -686,6 +855,28 @@ Image Invert(const Image& image)
         for (size_t u = 0; u < result.width; u++)
             for (size_t c = 0; c < result.channels; c++)
                 result(v, u, c) = static_cast<uint8_t>(255 - static_cast<int32_t>(image(v, u, c)));
+
+    return result;
+}
+
+// Naive approach of converting a colored image into only black and white (binarizing)
+// White in RGB is background, and will be black; rest becomes white
+Image RGB2BinarizedGrayscale(const Image& image)
+{
+    Image result(image.width, image.height, 1);
+
+    for (size_t v = 0; v < result.height; v++)
+    {
+        for (size_t u = 0; u < result.width; u++)
+        {
+            bool isWhite = true;
+            for (size_t c = 0; c < image.channels; c++)
+                isWhite &= (image(v, u, c) == 255);
+
+            // White in RGB image is background but is black in grayscale image
+            result(v, u, 0) = isWhite ? 0 : 255;
+        }
+    }
 
     return result;
 }

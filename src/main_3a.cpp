@@ -81,93 +81,10 @@ int main(int argc, char *argv[])
         return -1;
 
     // Create a thinning conditional filter for first stage
-    std::vector<Filter> filters1;
-    filters1.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 0}));
-    filters1.push_back(Filter(3, {0, 1, 0, 1, 1, 0, 0, 0, 0}));
-    filters1.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 0, 1, 0}));
-    filters1.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 1, 0}));
-    filters1.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 0, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 0, 1, 0, 0, 0, 0}));
-    filters1.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 0, 0}));
-    filters1.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 1, 1}));
-    filters1.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 0}));
-    filters1.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 1}));
-    filters1.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 0, 0, 0}));
-    filters1.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 0}));
-    filters1.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 0}));
-    filters1.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 0, 0, 0}));
-    filters1.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 0}));
-    filters1.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 1, 1}));
-    filters1.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 1}));
-    filters1.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 1, 0, 0}));
-    filters1.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 0}));
-    filters1.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 0, 0, 0}));
-    filters1.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 0, 0}));
-    filters1.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 0}));
-    filters1.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 1}));
-    filters1.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 1, 1, 1}));
-    filters1.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 0, 0}));
-    filters1.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 1}));
-    filters1.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 1, 1, 1}));
-    filters1.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 1, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 0}));
-    filters1.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 0}));
-    filters1.push_back(Filter(3, {0, 0, 0, 1, 1, 1, 1, 1, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 1, 1}));
-    filters1.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 1, 1, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 0}));
-    filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 0}));
-    filters1.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 1}));
-    filters1.push_back(Filter(3, {1, 0, 0, 1, 1, 1, 1, 1, 1}));
-    filters1.push_back(Filter(3, {0, 0, 1, 1, 1, 1, 1, 1, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 1, 1, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 1}));
-    filters1.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 1}));
-    filters1.push_back(Filter(3, {1, 0, 1, 1, 1, 1, 1, 1, 1}));
+    const std::vector<Filter> filters1 = GenerateThinningConditionalFilter();
 
     // Create a thinning unconditional filter for second stage
-    std::vector<Filter> filters2;
-    filters2.push_back(Filter(3, {0, 0, F_M, 0, F_M, 0, 0, 0, 0}));
-    filters2.push_back(Filter(3, {F_M, 0, 0, 0, F_M, 0, 0, 0, 0}));
-    filters2.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, 0, F_M, 0}));
-    filters2.push_back(Filter(3, {0, 0, 0, 0, F_M, F_M, 0, 0, 0}));
-    filters2.push_back(Filter(3, {0, 0, F_M, 0, F_M, F_M, 0, 0, 0}));
-    filters2.push_back(Filter(3, {0, F_M, F_M, 0, F_M, 0, 0, 0, 0}));
-    filters2.push_back(Filter(3, {F_M, F_M, 0, 0, F_M, 0, 0, 0, 0}));
-    filters2.push_back(Filter(3, {F_M, 0, 0, F_M, F_M, 0, 0, 0, 0}));
-    filters2.push_back(Filter(3, {0, 0, 0, F_M, F_M, 0, F_M, 0, 0}));
-    filters2.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, F_M, F_M, 0}));
-    filters2.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, 0, F_M, F_M}));
-    filters2.push_back(Filter(3, {0, 0, 0, 0, F_M, F_M, 0, 0, F_M}));
-    filters2.push_back(Filter(3, {0, F_M, F_M, F_M, F_M, 0, 0, 0, 0}));
-    filters2.push_back(Filter(3, {F_M, F_M, 0, 0, F_M, F_M, 0, 0, 0}));
-    filters2.push_back(Filter(3, {0, F_M, 0, 0, F_M, F_M, 0, 0, F_M}));
-    filters2.push_back(Filter(3, {0, 0, F_M, 0, F_M, F_M, 0, F_M, 0}));
-    filters2.push_back(Filter(3, {0, F_A, F_M, 0, F_M, F_B, F_M, 0, 0}));
-    filters2.push_back(Filter(3, {F_M, F_B, 0, F_A, F_M, 0, 0, 0, F_M}));
-    filters2.push_back(Filter(3, {0, 0, F_M, F_A, F_M, 0, F_M, F_B, 0}));
-    filters2.push_back(Filter(3, {F_M, 0, 0, 0, F_M, F_B, 0, F_A, F_M}));
-    filters2.push_back(Filter(3, {F_M, F_M, F_DC, F_M, F_M, F_DC, F_DC, F_DC, F_DC}));
-    filters2.push_back(Filter(3, {F_DC, F_M, 0, F_M, F_M, F_M, F_DC, 0, 0}));
-    filters2.push_back(Filter(3, {0, F_M, F_DC, F_M, F_M, F_M, 0, 0, F_DC}));
-    filters2.push_back(Filter(3, {0, 0, F_DC, F_M, F_M, F_M, 0, F_M, F_DC}));
-    filters2.push_back(Filter(3, {F_DC, 0, 0, F_M, F_M, F_M, F_DC, F_M, 0}));
-    filters2.push_back(Filter(3, {F_DC, F_M, F_DC, F_M, F_M, 0, 0, F_M, 0}));
-    filters2.push_back(Filter(3, {0, F_M, 0, F_M, F_M, 0, F_DC, F_M, F_DC}));
-    filters2.push_back(Filter(3, {0, F_M, 0, 0, F_M, F_M, F_DC, F_M, F_DC}));
-    filters2.push_back(Filter(3, {F_DC, F_M, F_DC, 0, F_M, F_M, 0, F_M, 0}));
-    filters2.push_back(Filter(3, {F_M, F_DC, F_M, F_DC, F_M, F_DC, F_A, F_B, F_C}));
-    filters2.push_back(Filter(3, {F_M, F_DC, F_C, F_DC, F_M, F_B, F_M, F_DC, F_A}));
-    filters2.push_back(Filter(3, {F_C, F_B, F_A, F_DC, F_M, F_DC, F_M, F_DC, F_M}));
-    filters2.push_back(Filter(3, {F_A, F_DC, F_M, F_B, F_M, F_DC, F_C, F_DC, F_M}));
-    filters2.push_back(Filter(3, {F_DC, F_M, 0, 0, F_M, F_M, F_M, 0, F_DC}));
-    filters2.push_back(Filter(3, {0, F_M, F_DC, F_M, F_M, 0, F_DC, 0, F_M}));
-    filters2.push_back(Filter(3, {F_DC, 0, F_M, F_M, F_M, 0, 0, F_M, F_DC}));
-    filters2.push_back(Filter(3, {F_M, 0, F_DC, 0, F_M, F_M, F_DC, F_M, 0}));
+    const std::vector<Filter> filters2 = GenerateThinningShrinkingUnconditionalFilter();
 
     constexpr int maxIterations = 200;
     bool converged = false;
@@ -176,7 +93,7 @@ int main(int argc, char *argv[])
     int iteration = 0;
     while (!converged && iteration < maxIterations)
     {
-        ApplyThinning(img, filters1, filters2, converged);
+        ApplyMorphological(img, filters1, filters2, converged);
         if (!img.ExportRAW(inputFilenameNoExtension + "_thin_" + std::to_string(iteration + 1) + ".raw"))
             return -1;
         iteration++;

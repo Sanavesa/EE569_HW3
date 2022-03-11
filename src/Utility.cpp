@@ -67,3 +67,23 @@ cv::Mat RGBImageToMat(const Image& image)
 
     return mat;
 }
+
+// Converts an image from RGB to Grayscale
+Image RGB2Grayscale(const Image &image)
+{
+    Image result(image.width, image.height, 1);
+
+    for (size_t v = 0; v < result.height; v++)
+    {
+        for (size_t u = 0; u < result.width; u++)
+        {
+            const double r = static_cast<double>(image(v, u, 0));
+            const double g = static_cast<double>(image(v, u, 1));
+            const double b = static_cast<double>(image(v, u, 2));
+            const double y = 0.2989 * r + 0.5870 * g + 0.1140 * b;
+            result(v, u, 0) = Saturate(y);
+        }
+    }
+
+    return result;
+}
