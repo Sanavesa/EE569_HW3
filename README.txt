@@ -34,34 +34,32 @@ Example:
     .\EE569_HW3_Q1.exe Forky 328 328 3
     .\EE569_HW3_Q1.exe 22 328 328 3
 
-
-
-
-
 ================================================== Q2a ============================================================
 Arguments:
-    programName inputFilenameNoExtension width height channels
-    inputFilenameNoExtension is the .raw image without the extension
+    programName leftInputFilenameNoExtension middleInputFilenameNoExtension rightInputFilenameNoExtension width height channels
+    *InputFilenameNoExtension is the .raw image without the extension
 Example:
-    .\EE569_HW2_Q2a.exe Bridge 600 400 1
-	
-================================================== Q2b ============================================================
-Arguments:
-    programName inputFilenameNoExtension width height channels
-    inputFilenameNoExtension is the .raw image without the extension
-Example:
-    .\EE569_HW2_Q2b.exe Bridge 600 400 1
+    .\EE569_HW3_Q2.exe left middle right 576 432 3
 	
 ================================================== Q3a ============================================================
 Arguments:
     programName inputFilenameNoExtension width height channels
     inputFilenameNoExtension is the .raw image without the extension
 Example:
-    .\EE569_HW2_Q3a.exe Bird 500 375 3
+    .\EE569_HW3_Q3a.exe spring 252 252 1
+    .\EE569_HW3_Q3a.exe flower 247 247 1
+    .\EE569_HW3_Q3a.exe jar 252 252 1
 
 ================================================== Q3b ============================================================
+Arguments:
+    programName inputFilenameNoExtension width height channels [defectSizeThreshold=50]
+    inputFilenameNoExtension is the .raw image without the extension
+Example:
+    .\EE569_HW3_Q3b.exe deer 550 691 1 50
+
+================================================== Q3c ============================================================
 Arguments:
     programName inputFilenameNoExtension width height channels
     inputFilenameNoExtension is the .raw image without the extension
 Example:
-    .\EE569_HW2_Q3b.exe Bird 500 375 3
+    .\EE569_HW3_Q3c.exe beans 494 82 3

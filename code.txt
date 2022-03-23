@@ -1,0 +1,2389 @@
+#define _USE_MATH_DEFINES
+
+#include "Filter.h"
+#include "Utility.h"
+
+#include <iostream>
+#include <cmath>
+#include <limits>
+
+// Creates a new filter with the specified size
+Filter::Filter(const uint32_t size) : size(size)
+{
+    // Allocate image data array
+    // data is int32_t[size][size]
+    data = new int32_t *[size];
+    for (uint32_t v = 0; v < size; v++)
+    {
+        data[v] = new int32_t[size];
+        for (uint32_t u = 0; u < size; u++)
+            data[v][u] = 0;
+    }
+}
+
+// Creates a filter from the given flatten array with the specified square size.
+Filter::Filter(const uint32_t size, const std::initializer_list<int32_t> values) : size(size)
+{
+    // Allocate image data array
+    // data is int32_t[3][3]
+    data = new int32_t *[size];
+    for (uint32_t v = 0, i = 0; v < size; v++)
+        data[v] = new int32_t[size];
+
+    uint32_t i = 0;
+    for (const auto element : values)
+    {
+        data[i / size][i % size] = element;
+        i++;
+    }
+}
+
+// Copy constructor
+Filter::Filter(const Filter &other) : size(other.size)
+{
+    // Allocate image data array
+    // data is int32_t[size][size]
+    data = new int32_t *[size];
+    for (uint32_t v = 0; v < size; v++)
+    {
+        data[v] = new int32_t[size];
+        for (uint32_t u = 0; u < size; u++)
+            data[v][u] = other.data[v][u];
+    }
+}
+
+// Frees all dynamically allocated memory resources
+Filter::~Filter()
+{
+    // Free image data resources
+    for (uint32_t v = 0; v < size; v++)
+        delete[] data[v];
+
+    delete[] data;
+}
+
+// Print the contents of the filter to console
+void Filter::Print() const
+{
+    std::cout << "Filter (" << size << " x " << size << ")" << std::endl;
+    for (uint32_t v = 0; v < size; v++)
+    {
+        for (uint32_t u = 0; u < size; u++)
+            std::cout << data[v][u] << "\t";
+        std::cout << std::endl;
+    }
+}
+
+// Applies the filter on the specified center pixel of the given image, returns true if matches, false otherwise
+bool Filter::Match01(const Image &image, const int32_t row, const int32_t column, const size_t channel, const BoundaryExtension &boundaryExtension) const
+{
+    const int32_t centerIndex = size / 2;
+
+    for (int32_t dv = -centerIndex; dv <= centerIndex; dv++)
+        for (int32_t du = -centerIndex; du <= centerIndex; du++)
+        {
+            const int32_t filterCase = data[centerIndex + dv][centerIndex + du];
+            const uint8_t intensity = image.GetPixelValue(row + dv, column + du, channel, boundaryExtension); // [0, 255]
+
+            switch(filterCase)
+            {
+                case 0:
+                    if (intensity != 0)
+                        return false;
+                    break;
+                case 1:
+                    if (intensity != 255)
+                        return false;
+                    break;
+                default:
+                    std::cout << "Invalid filter case used: " << filterCase << std::endl;
+                    break;
+            }
+        }
+
+    return true;
+}
+
+// Applies the filter on the specified center pixel of the given image, returns true if matches, false otherwise
+bool Filter::Match(const Image &image, const int32_t row, const int32_t column, const size_t channel, const BoundaryExtension &boundaryExtension) const
+{
+    const int32_t centerIndex = size / 2;
+    const int32_t centerIntensity = image.GetPixelValue(row, column, channel, boundaryExtension); // [0, 255]
+
+    // Used to compute if ABC constraint is met, if any
+    uint32_t unionABCValue = 0;
+    bool hasABC = false;
+
+    for (int32_t dv = -centerIndex; dv <= centerIndex; dv++)
+        for (int32_t du = -centerIndex; du <= centerIndex; du++)
+        {
+            const int32_t filterCase = data[centerIndex + dv][centerIndex + du];
+            const uint8_t intensity = image.GetPixelValue(row + dv, column + du, channel, boundaryExtension); // [0, 255]
+
+            switch(filterCase)
+            {
+                // Generic 0 case
+                case 0:
+                    if (intensity != 0)
+                        return false;
+                    break;
+                // Generic 1 case
+                case 1:
+                    if (intensity != 255)
+                        return false;
+                    break;
+                // Skip dont cares
+                case F_DC:
+                    break;
+                // Special Case: M, must match center
+                case F_M:
+                    if (intensity != centerIntensity)
+                        return false;
+                    break;
+                // Special Cases: ABC, one must be true atleast
+                case F_A:
+                case F_B:
+                case F_C:
+                    unionABCValue += intensity;
+                    hasABC = true;
+                    break;
+                default:
+                    std::cout << "Invalid filter case used: " << filterCase << std::endl;
+                    break;
+            }
+        }
+
+    // Ensure that A or B or C >= 1 is satisfied
+    if (hasABC && unionABCValue == 0)
+        return false;
+
+    return true;
+}
+
+#pragma once
+
+#ifndef FILTER_H
+#define FILTER_H
+
+#include "Image.h"
+
+// Filter: Dont care
+#define F_DC 2
+// Filter: center
+#define F_M 3
+// Filter: A
+#define F_A 4
+// Filter: B
+#define F_B 5
+// Filter: C
+#define F_C 6
+
+class Filter
+{
+public:
+    // The filter data, stored as a 2D array in the format [v][u]
+    int32_t **data;
+    // The size of the filter in pixels
+    const uint32_t size;
+
+    // Creates a new filter with 0s with the specified filter size
+    Filter(const uint32_t size);
+    // Creates a filter from the given flatten array with the specified square size.
+    Filter(const uint32_t size, const std::initializer_list<int32_t> values);
+    // Copy constructor
+    Filter(const Filter &other);
+    // Frees all dynamically allocated memory resources
+    ~Filter();
+
+    // Print the contents of the filter to console
+    void Print() const;
+
+    // Applies the filter on the specified center pixel of the given image, returns true if matches, false otherwise
+    bool Match01(const Image &image, const int32_t row, const int32_t column, const size_t channel, const BoundaryExtension &boundaryExtension) const;
+    bool Match(const Image &image, const int32_t row, const int32_t column, const size_t channel = 0, const BoundaryExtension &boundaryExtension = BoundaryExtension::Zero) const;
+};
+
+#endif // FILTER_H
+
+#include <stdio.h>
+#include <iostream>
+#include <stdlib.h>
+#include <fstream>
+#include <string>
+#include "Image.h"
+
+// Creates a new image with the specified dimensions
+Image::Image(const size_t _width, const size_t _height, const size_t _channels)
+    : width(_width), height(_height), channels(_channels), numPixels(_width * _height)
+{
+    // Allocate image data array
+    data = new uint8_t **[height];
+    for (size_t v = 0; v < height; v++)
+    {
+        data[v] = new uint8_t *[width];
+        for (size_t u = 0; u < width; u++)
+            data[v][u] = new uint8_t[channels];
+    }
+}
+
+// Copy constructor
+Image::Image(const Image &other)
+    : width(other.width), height(other.height), channels(other.channels), numPixels(other.numPixels)
+{
+    // Allocate image data array
+    data = new uint8_t **[height];
+    for (size_t v = 0; v < height; v++)
+    {
+        data[v] = new uint8_t *[width];
+        for (size_t u = 0; u < width; u++)
+        {
+            data[v][u] = new uint8_t[channels];
+            for (size_t c = 0; c < channels; c++)
+                data[v][u][c] = other.data[v][u][c];
+        }
+    }
+}
+
+// Reads and loads the image in raw format, row-by-row RGB interleaved, from the specified filename
+Image::Image(const std::string &filename, const size_t _width, const size_t _height, const size_t _channels)
+    : width(_width), height(_height), channels(_channels), numPixels(_width * _height)
+{
+    // Allocate image data array
+    data = new uint8_t **[height];
+    for (size_t v = 0; v < height; v++)
+    {
+        data[v] = new uint8_t *[width];
+        for (size_t u = 0; u < width; u++)
+            data[v][u] = new uint8_t[channels];
+    }
+
+    // Open the file
+    std::ifstream inStream(filename, std::ios::binary);
+
+    // Check if file opened successfully
+    if (!inStream.is_open())
+    {
+        std::cout << "Cannot open file for reading: " << filename << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    // Read from the file: row-by-row, RGB interleaved
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
+            inStream.read((char *)data[v][u], channels);
+
+    inStream.close();
+}
+
+// Frees all dynamically allocated memory resources
+Image::~Image()
+{
+    // Free image data resources
+    for (size_t v = 0; v < height; v++)
+    {
+        for (size_t u = 0; u < width; u++)
+            delete[] data[v][u];
+
+        delete[] data[v];
+    }
+
+    delete[] data;
+}
+
+// Exports the image in raw format, row-by-row RGB interleaved, to the specified filename
+bool Image::ExportRAW(const std::string &filename) const
+{
+    // Open the file
+    std::ofstream outStream(filename, std::ofstream::binary | std::ofstream::trunc);
+
+    // Check if file opened successfully
+    if (!outStream.is_open())
+    {
+        std::cout << "Cannot open file for writing: " << filename << std::endl;
+        return false;
+    }
+
+    // Write to the file: row-by-row, RGB interleaved
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
+            outStream.write((char *)data[v][u], channels);
+
+    outStream.close();
+    return true;
+}
+
+// Reads and loads the image in raw format, row-by-row RGB interleaved, from the specified filename
+bool Image::ImportRAW(const std::string &filename)
+{
+    // Open the file
+    std::ifstream inStream(filename, std::ios::binary);
+
+    // Check if file opened successfully
+    if (!inStream.is_open())
+    {
+        std::cout << "Cannot open file for reading: " << filename << std::endl;
+        return false;
+    }
+
+    // Read from the file: row-by-row, RGB interleaved
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
+            inStream.read((char *)data[v][u], channels);
+
+    inStream.close();
+    return true;
+}
+
+// Determines if the given location is in a valid position in the image
+bool Image::IsInBounds(const int32_t row, const int32_t column, const size_t channel) const
+{
+    // True if the pixel is in a valid position in the image, false otherwise
+    return row >= 0 &&
+           row < static_cast<int32_t>(height) &&
+           column >= 0 &&
+           column < static_cast<int32_t>(width) &&
+           channel < channels;
+}
+
+// Retrieves the pixel value at the specified location; if out of bounds, will utilize the specified boundary extension method
+uint8_t Image::GetPixelValue(const int32_t row, const int32_t column, const size_t channel, const BoundaryExtension &boundaryExtension) const
+{
+    // If valid position, get the pixel directly
+    if (IsInBounds(row, column, channel))
+        return data[row][column][channel];
+    // Otherwise, retrieve the pixel using the specified boundary extension method
+    else
+    {
+        switch (boundaryExtension)
+        {
+        case BoundaryExtension::Replication:
+        {
+            // Compute the replicated/symmetrical coordinate.
+            // If we look at a single row, it should look [ORIGINAL] [REVERSED] [ORIGINAL] [REVERSED] ...
+            // where the first [ORIGINAL] is the the image and the rest are out of bound extensions
+            // Note: There is probably a better more compact version, but I'm only one day from submission, so this'll do!
+            const int32_t w = static_cast<int32_t>(width);
+            const int32_t h = static_cast<int32_t>(height);
+
+            // The final index after applying the replication algorithm
+            int32_t u = column, v = row;
+
+            // Whether the u or v is on a reversed cycle
+            bool uReversed = false, vReversed = false;
+
+            // The amount of extra pixels on either side, starting from 0; i.e. u=-1 gives uExtra=0, -2 gives 1, etc.
+            uint32_t uExtra = 0, vExtra = 0;
+
+            // If out of bounds from the left
+            if (column < 0)
+            {
+                uExtra = std::abs(column) - 1;
+                uReversed = (uExtra / w) % 2 == 1;
+
+                // Compute the u index of the boundary extension
+                if (uReversed)
+                    u = w - 1 - uExtra % 3;
+                else
+                    u = uExtra % 3;
+            }
+            // If out of bounds from the right
+            else if (column >= w)
+            {
+                uExtra = column - w;
+                uReversed = (uExtra / w) % 2 == 0;
+
+                // Compute the u index of the boundary extension
+                if (uReversed)
+                    u = w - 1 - uExtra % 3;
+                else
+                    u = uExtra % 3;
+            }
+
+            // If out of bounds from the top
+            if (row < 0)
+            {
+                vExtra = std::abs(row) - 1;
+                vReversed = (vExtra / h) % 2 == 1;
+
+                // Compute the v index of the boundary extension
+                if (vReversed)
+                    v = h - 1 - vExtra % 3;
+                else
+                    v = vExtra % 3;
+            }
+            // If out of bounds from the bottom
+            else if (row >= h)
+            {
+                vExtra = column - h;
+                vReversed = (vExtra / h) % 2 == 0;
+
+                // Compute the v index of the boundary extension
+                if (vReversed)
+                    v = h - 1 - vExtra % 3;
+                else
+                    v = vExtra % 3;
+            }
+
+            return data[v][u][channel];
+        }
+
+        case BoundaryExtension::Reflection:
+        {
+            const int32_t w = static_cast<int32_t>(width);
+            const int32_t h = static_cast<int32_t>(height);
+            int32_t u = column, v = row;
+            if (u < 0)
+                u = std::abs(u);
+            if (u >= w)
+                u = 2 * (w - 1) - u;
+            if (v < 0)
+                v = std::abs(v);
+            if (v >= h)
+                v = 2 * (h - 1) - v;
+
+            return data[v][u][channel];
+        }
+
+        case BoundaryExtension::Zero:
+        default:
+            return 0;
+        }
+    }
+}
+
+// Retrieves the pixel value at the specified location; applies reflection padding for out of bounds
+uint8_t Image::operator()(const size_t row, const size_t column, const size_t channel) const
+{
+    return data[row][column][channel];
+}
+
+// Retrieves the pixel value at the specified location; does not check for out of bounds
+uint8_t &Image::operator()(const size_t row, const size_t column, const size_t channel)
+{
+    return data[row][column][channel];
+}
+
+// Sets the entire image across all channels to the specified value
+void Image::Fill(const uint8_t value)
+{
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
+            for (size_t c = 0; c < channels; c++)
+                data[v][u][c] = value;
+}
+
+// Copy the other image
+void Image::Copy(const Image &other)
+{
+    for (size_t v = 0; v < height; v++)
+        for (size_t u = 0; u < width; u++)
+            for (size_t c = 0; c < channels; c++)
+                data[v][u][c] = other.data[v][u][c];
+}
+
+#pragma once
+
+#ifndef IMAGE_H
+#define IMAGE_H
+
+#include <string>
+#include <array>
+
+// Specifies numerous ways to handle out of bound pixels
+enum BoundaryExtension
+{
+    // Replace the invalid pixels with zeros
+    Zero,
+
+    // Reflect the invalid pixels with respect to the main diagonal line
+    Reflection,
+
+    // Replicate the invalid pixels (symmetric padding)
+    Replication
+};
+
+class Image
+{
+private:
+    // The image data, stored as a 3D array in the format [row][column][channel]
+    uint8_t ***data;
+
+public:
+    // The width of the image in pixels in the image
+    const size_t width;
+    // The height of the image in pixels in the image
+    const size_t height;
+    // The number of channels in the image
+    const size_t channels;
+    // The total number of pixels (width*height) in the image
+    const size_t numPixels;
+
+    // Creates a new image with the specified dimensions
+    Image(const size_t _width, const size_t _height, const size_t _channels);
+    // Copy constructor
+    Image(const Image &other);
+    // Reads and loads the image in raw format, row-by-row RGB interleaved, from the specified filename
+    Image(const std::string &filename, const size_t _width, const size_t _height, const size_t _channels);
+    // Frees all dynamically allocated memory resources
+    ~Image();
+
+    // Exports the image in raw format, row-by-row RGB interleaved, to the specified filename
+    bool ExportRAW(const std::string &filename) const;
+    // Reads and loads the image in raw format, row-by-row RGB interleaved, from the specified filename
+    bool ImportRAW(const std::string &filename);
+
+    // Determines if the given location is in a valid position in the image
+    bool IsInBounds(const int32_t row, const int32_t column, const size_t channel = 0) const;
+    // Retrieves the pixel value at the specified location; if out of bounds, will utilize the specified boundary extension method
+    uint8_t GetPixelValue(const int32_t row, const int32_t column, const size_t channel = 0,
+                          const BoundaryExtension &boundaryExtension = BoundaryExtension::Reflection) const;
+
+    // Retrieves the pixel value at the specified location; does not check for out of bounds
+    uint8_t operator()(const size_t row, const size_t column, const size_t channel = 0) const;
+    // Retrieves the pixel value at the specified location; does not check for out of bounds
+    uint8_t &operator()(const size_t row, const size_t column, const size_t channel = 0);
+
+    // Sets the entire image across all channels to the specified value
+    void Fill(const uint8_t value);
+
+    // Copy the other image
+    void Copy(const Image &other);
+};
+
+#endif // IMAGE_H
+
+#pragma once
+
+#ifndef IMPLEMENTATIONS_H
+#define IMPLEMENTATIONS_H
+
+#include <iostream>
+#include <unordered_set>
+#include <vector>
+#include <algorithm>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/features2d.hpp>
+#include <opencv2/xfeatures2d.hpp>
+#include <opencv2/xfeatures2d/nonfree.hpp>
+#include <opencv2/calib3d.hpp>
+
+#include "Image.h"
+#include "Utility.h"
+#include "Filter.h"
+
+using namespace cv;
+using namespace cv::xfeatures2d;
+
+
+// Indicates the triangle's position for Q1 as part of spatial wraping algorithm.
+enum TrianglePosition
+{
+    None = 0,
+    Left = 1,
+    Top = 2,
+    Right = 4,
+    Bottom = 8,
+    TopLeft = Top | Left,
+    TopRight = Top | Right,
+    BottomLeft = Bottom | Left,
+    BottomRight = Bottom | Right,
+};
+
+// Returns the image coordinate after applying a transformation matrix on the given image coordinate
+std::pair<double, double> TransformPosition(const Image &image, const Mat &matrix, const double &imageX, const double &imageY)
+{
+    // Convert cartesian
+    const auto [x, y] = ImageToCartesianCoord(image, imageX, imageY);
+
+    // Apply matrix to the given x,y
+    double point[6] = {1, x, y, x * x, x * y, y * y};
+    Mat pointMat(6, 1, CV_64F, point);
+
+    // Perform transformation and retrieve answer
+    Mat result = matrix * pointMat;
+    const double resultX = result.at<double>(0, 0);
+    const double resultY = result.at<double>(1, 0);
+
+    // Return answer as image coordinates (zero-based)
+    return CartesianToImageCoord(image, resultX, resultY);
+}
+
+// Calculate wrapping transformation matrix from original to wrapped
+Mat CalcWrapMatrix(const Image &image, const TrianglePosition &position)
+{
+    // Extract image dimensions
+    double w = static_cast<double>(image.width);
+    double h = static_cast<double>(image.height);
+
+    // Preprare the set of points in image coord to use to calculate the transformation matrices
+    std::vector<std::pair<double, double>> imagePoints;
+    imagePoints.reserve(6);
+
+    // Add center point
+    imagePoints.push_back(std::make_pair(0.5 * w - 1, 0.5 * h - 1));
+
+    // Add top-left and median top-left
+    if (position & TopLeft)
+    {
+        imagePoints.push_back(std::make_pair(0, 0));
+        imagePoints.push_back(std::make_pair(0.25 * w - 1, 0.25 * h - 1));
+    }
+
+    // Add top-right and median top-right
+    if (position & TopRight)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, 0));
+        imagePoints.push_back(std::make_pair(0.75 * w - 1, 0.25 * h - 1));
+    }
+
+    // Add bottom-left and median bottom-right
+    if (position & BottomLeft)
+    {
+        imagePoints.push_back(std::make_pair(0, h - 1));
+        imagePoints.push_back(std::make_pair(0.25 * w - 1, 0.75 * h - 1));
+    }
+
+    // Add bottom-right and median bottom-right
+    if (position & BottomRight)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, h - 1));
+        imagePoints.push_back(std::make_pair(0.75 * w - 1, 0.75 * h - 1));
+    }
+
+    // Add triangle center's base
+    if (position & Left)
+    {
+        imagePoints.push_back(std::make_pair(0, 0.5 * h - 1));
+    }
+    else if (position & Right)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, 0.5 * h - 1));
+    }
+    else if (position & Top)
+    {
+        imagePoints.push_back(std::make_pair(0.5 * w - 1, 0));
+    }
+    else if (position & Bottom)
+    {
+        imagePoints.push_back(std::make_pair(0.5 * w - 1, h - 1));
+    }
+    else
+    {
+        std::cout << "Invalid position type given: " << (int)position << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    // Calculate the points and their target positions in cartesian coordinates
+    double *srcPoints = new double[6 * 6];  // 6x6 of positions, format for each position: 1 x y x^2 xy y^2
+    double *destPoints = new double[2 * 6]; // 2x6 of u,v positions, format: x0 y0 x1 y1 .. x5 y5
+
+    // Convert each point to cartesian
+    for (size_t i = 0; i < imagePoints.size(); i++)
+    {
+        const auto imageCoord = imagePoints[i];
+        const auto [x, y] = ImageToCartesianCoord(image, imageCoord.first, imageCoord.second);
+
+        // matrix of x,y positions
+        srcPoints[i + 0 * 6] = 1.0;
+        srcPoints[i + 1 * 6] = x;
+        srcPoints[i + 2 * 6] = y;
+        srcPoints[i + 3 * 6] = x * x;
+        srcPoints[i + 4 * 6] = x * y;
+        srcPoints[i + 5 * 6] = y * y;
+
+        // matrix of u,v positions
+        destPoints[i + 0 * 6] = x;
+        destPoints[i + 1 * 6] = y;
+    }
+
+    // Move the center pixel of the triangle's base by the radius of the circle, 64 pixels
+    // Index 5 is x5 and 11 is y5
+    if (position & Left)
+        destPoints[5] += 64;
+    else if (position & Right)
+        destPoints[5] -= 64;
+    else if (position & Top)
+        destPoints[11] -= 64;
+    else if (position & Bottom)
+        destPoints[11] += 64;
+
+    // Convert to OpenCV's matrix
+    Mat srcMat(6, 6, CV_64F, srcPoints); // the x,y matrix
+    srcMat = srcMat.inv();
+    Mat destMat(2, 6, CV_64F, destPoints); // the u,v matrix
+
+    return destMat * srcMat;
+}
+
+// Calculate unwrapping transformation matrix from wrapped to original
+Mat CalcUnwrapMatrix(const Image &image, const TrianglePosition &position)
+{
+    // Extract image dimensions
+    double w = static_cast<double>(image.width);
+    double h = static_cast<double>(image.height);
+
+    // Preprare the set of points in image coord to use to calculate the transformation matrices
+    std::vector<std::pair<double, double>> imagePoints;
+    imagePoints.reserve(6);
+
+    // Add center point
+    imagePoints.push_back(std::make_pair(0.5 * w - 1, 0.5 * h - 1));
+
+    // Add top-left and median top-left
+    if (position & TopLeft)
+    {
+        imagePoints.push_back(std::make_pair(0, 0));
+        imagePoints.push_back(std::make_pair(0.25 * w - 1, 0.25 * h - 1));
+    }
+
+    // Add top-right and median top-right
+    if (position & TopRight)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, 0));
+        imagePoints.push_back(std::make_pair(0.75 * w - 1, 0.25 * h - 1));
+    }
+
+    // Add bottom-left and median bottom-right
+    if (position & BottomLeft)
+    {
+        imagePoints.push_back(std::make_pair(0, h - 1));
+        imagePoints.push_back(std::make_pair(0.25 * w - 1, 0.75 * h - 1));
+    }
+
+    // Add bottom-right and median bottom-right
+    if (position & BottomRight)
+    {
+        imagePoints.push_back(std::make_pair(w - 1, h - 1));
+        imagePoints.push_back(std::make_pair(0.75 * w - 1, 0.75 * h - 1));
+    }
+
+    // Add triangle center's base
+    if (position & Left)
+    {
+        imagePoints.push_back(std::make_pair(64, 0.5 * h - 1));
+    }
+    else if (position & Right)
+    {
+        imagePoints.push_back(std::make_pair(w - 1 - 64, 0.5 * h - 1));
+    }
+    else if (position & Top)
+    {
+        imagePoints.push_back(std::make_pair(0.5 * w - 1, 64));
+    }
+    else if (position & Bottom)
+    {
+        imagePoints.push_back(std::make_pair(0.5 * w - 1, h - 1 - 64));
+    }
+    else
+    {
+        std::cout << "Invalid position type given: " << (int)position << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    // Calculate the points and their target positions in cartesian coordinates
+    double *srcPoints = new double[6 * 6];  // 6x6 of positions, format for each position: 1 x y x^2 xy y^2
+    double *destPoints = new double[2 * 6]; // 2x6 of u,v positions, format: x0 y0 x1 y1 .. x5 y5
+
+    // Convert each point to cartesian
+    for (size_t i = 0; i < imagePoints.size(); i++)
+    {
+        const auto imageCoord = imagePoints[i];
+        const auto [x, y] = ImageToCartesianCoord(image, imageCoord.first, imageCoord.second);
+
+        // matrix of x,y positions
+        srcPoints[i + 0 * 6] = 1.0;
+        srcPoints[i + 1 * 6] = x;
+        srcPoints[i + 2 * 6] = y;
+        srcPoints[i + 3 * 6] = x * x;
+        srcPoints[i + 4 * 6] = x * y;
+        srcPoints[i + 5 * 6] = y * y;
+
+        // matrix of u,v positions
+        destPoints[i + 0 * 6] = x;
+        destPoints[i + 1 * 6] = y;
+    }
+
+    // Move the center pixel of the triangle's base by the radius of the circle, 64 pixels
+    // Index 5 is x5 and 11 is y5
+    if (position & Left)
+        destPoints[5] -= 64;
+    else if (position & Right)
+        destPoints[5] += 64;
+    else if (position & Top)
+        destPoints[11] += 64;
+    else if (position & Bottom)
+        destPoints[11] -= 64;
+
+    // Convert to OpenCV's matrix
+    Mat srcMat(6, 6, CV_64F, srcPoints); // the x,y matrix
+    srcMat = srcMat.inv();
+    Mat destMat(2, 6, CV_64F, destPoints); // the u,v matrix
+
+    return destMat * srcMat;
+}
+
+// Applies a forward mapping with rounding on dest u,v positions
+void ApplyForwardMapping(const Image &src, Image &dest, const Mat matrix, const TrianglePosition &position)
+{
+    if (position & Bottom)
+    {
+        for (size_t y = src.height - 1, i = 0; y >= src.height / 2; y--, i++)
+        {
+            for (size_t x = i; x < src.width - i; x++)
+            {
+                // Convert image coordinate in src (x,y) to image coordinate in dest (destX, destY i.e. u,v)
+                const auto destPosition = TransformPosition(src, matrix, static_cast<double>(x), static_cast<double>(y));
+                const int32_t destX = static_cast<int32_t>(std::round(destPosition.first));
+                const int32_t destY = static_cast<int32_t>(std::round(destPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (dest.IsInBounds(destY, destX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(destY, destX, c) = src(y, x, c);
+                }
+            }
+        }
+    }
+    else if (position & Top)
+    {
+        for (size_t y = 0, i = 0; y < src.height / 2; y++, i++)
+        {
+            for (size_t x = i; x < src.width - i; x++)
+            {
+                // Convert image coordinate in src (x,y) to image coordinate in dest (destX, destY i.e. u,v)
+                const auto destPosition = TransformPosition(src, matrix, static_cast<double>(x), static_cast<double>(y));
+                const int32_t destX = static_cast<int32_t>(std::round(destPosition.first));
+                const int32_t destY = static_cast<int32_t>(std::round(destPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (dest.IsInBounds(destY, destX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(destY, destX, c) = src(y, x, c);
+                }
+            }
+        }
+    }
+    else if (position & Left)
+    {
+        for (size_t x = 0, i = 0; x < src.width / 2; x++, i++)
+        {
+            for (size_t y = i; y < src.height - i; y++)
+            {
+                // Convert image coordinate in src (x,y) to image coordinate in dest (destX, destY i.e. u,v)
+                const auto destPosition = TransformPosition(src, matrix, static_cast<double>(x), static_cast<double>(y));
+                const int32_t destX = static_cast<int32_t>(std::round(destPosition.first));
+                const int32_t destY = static_cast<int32_t>(std::round(destPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (dest.IsInBounds(destY, destX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(destY, destX, c) = src(y, x, c);
+                }
+            }
+        }
+    }
+    else if (position & Right)
+    {
+        for (size_t x = src.width - 1, i = 0; x >= src.width / 2; x--, i++)
+        {
+            for (size_t y = i; y < src.height - i; y++)
+            {
+                // Convert image coordinate in src (x,y) to image coordinate in dest (destX, destY i.e. u,v)
+                const auto destPosition = TransformPosition(src, matrix, static_cast<double>(x), static_cast<double>(y));
+                const int32_t destX = static_cast<int32_t>(std::round(destPosition.first));
+                const int32_t destY = static_cast<int32_t>(std::round(destPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (dest.IsInBounds(destY, destX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(destY, destX, c) = src(y, x, c);
+                }
+            }
+        }
+    }
+}
+
+// Applies a inverse mapping with rounding on src x,y positions
+void ApplyInverseMapping(const Image &src, Image &dest, const Mat matrix, const TrianglePosition &position)
+{
+    if (position & Bottom)
+    {
+        for (size_t v = dest.height - 1, i = 0; v >= dest.height / 2; v--, i++)
+        {
+            for (size_t u = i; u < dest.width - i; u++)
+            {
+                // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+                const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+                const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+                const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (src.IsInBounds(srcY, srcX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+            }
+        }
+    }
+    else if (position & Top)
+    {
+        for (size_t v = 0, i = 0; v < src.height / 2; v++, i++)
+        {
+            for (size_t u = i; u < src.width - i; u++)
+            {
+                // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+                const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+                const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+                const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (src.IsInBounds(srcY, srcX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+            }
+        }
+    }
+    else if (position & Left)
+    {
+        for (size_t u = 0, i = 0; u < src.width / 2; u++, i++)
+        {
+            for (size_t v = i; v < src.height - i; v++)
+            {
+                // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+                const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+                const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+                const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (src.IsInBounds(srcY, srcX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+            }
+        }
+    }
+    else if (position & Right)
+    {
+        for (size_t u = src.width - 1, i = 0; u >= src.width / 2; u--, i++)
+        {
+            for (size_t v = i; v < src.height - i; v++)
+            {
+                // Convert image coordinate in dest (u,v) to image coordinate in src (x,y)
+                const auto srcPosition = TransformPosition(src, matrix, static_cast<double>(u), static_cast<double>(v));
+                const int32_t srcX = static_cast<int32_t>(std::round(srcPosition.first));
+                const int32_t srcY = static_cast<int32_t>(std::round(srcPosition.second));
+
+                // Only copy pixels if the pixel is within bounds
+                if (src.IsInBounds(srcY, srcX))
+                {
+                    for (size_t c = 0; c < dest.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+            }
+        }
+    }
+}
+
+// Computes the H transformation matrix given a set of control points
+Mat CalculateHMatrix(const std::vector<Point2f> srcPoints, const std::vector<Point2f> destPoints)
+{
+    // H\lambda [3x3] = dest [x,y,1] * inverse(src [x,y,1])
+    const size_t pointsCount = srcPoints.size();
+    double *srcArray = new double[3 * pointsCount];
+    double *destArray = new double[3 * pointsCount];
+    for (int i = 0; i < pointsCount; i++)
+    {
+        srcArray[i + 0 * pointsCount] = static_cast<double>(srcPoints.at(i).x);
+        srcArray[i + 1 * pointsCount] = static_cast<double>(srcPoints.at(i).y);
+        srcArray[i + 2 * pointsCount] = 1.0;
+
+        destArray[i + 0 * pointsCount] = static_cast<double>(destPoints.at(i).x);
+        destArray[i + 1 * pointsCount] = static_cast<double>(destPoints.at(i).y);
+        destArray[i + 2 * pointsCount] = 1.0;
+    }
+
+    Mat srcMat(3, static_cast<int>(pointsCount), CV_64FC1, srcArray);
+    Mat destMat(3, static_cast<int>(pointsCount), CV_64FC1, destArray);
+    Mat srcInvMat;
+    invert(srcMat, srcInvMat, DECOMP_SVD); // pseudo inverse
+    Mat h = destMat * srcInvMat;
+
+    return h;
+}
+
+// Computes and finds the best control points that maps fromImage to the toImage with the specified number of points (-1 for all points).
+// The output tuple is [fromPoints, toPoints, visualizeImg]
+// Credit: OpenCV Documentation
+std::tuple<std::vector<Point2f>, std::vector<Point2f>, Mat> FindControlPoints(const Image &fromImage, const Image &toImage, const int maxPointsCount = -1)
+{
+    // Load images as OpenCV Mat
+    Mat fromMat = RGBImageToMat(fromImage);
+    Mat toMat = RGBImageToMat(toImage);
+
+    // Use SURF to detect control points (the key points)
+    constexpr double hessianThreshold = 300;
+    constexpr int nOctaves = 3;
+    constexpr int nOctaveLayers = 6;
+    Ptr<SURF> detector = SURF::create(hessianThreshold, nOctaveLayers, nOctaveLayers);
+    std::vector<KeyPoint> fromKeypoints, toKeypoints;
+    Mat fromDescriptors, toDescriptors;
+    detector->detectAndCompute(fromMat, noArray(), fromKeypoints, fromDescriptors);
+    detector->detectAndCompute(toMat, noArray(), toKeypoints, toDescriptors);
+
+    // Use a bruteforce based matcher to match the computed detectors
+    Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::BRUTEFORCE);
+    std::vector<DMatch> matches;
+    matcher->match(fromDescriptors, toDescriptors, matches);
+
+    // After finding the matches using a bruteforce approach, sort the matches based on similarity distance between each pair
+    // In other words, a smaller distance represents a similar match, thus we will pick only the top N best matches based on their distance
+    std::sort(matches.begin(), matches.end(), [](DMatch match1, DMatch match2) { return match1.distance < match2.distance;});
+
+    // Extract the control points from the matches
+    std::vector<DMatch> filteredMatches;
+    std::vector<Point2f> fromPoints, toPoints;
+    for (size_t i = 0; i < std::min(static_cast<int>(matches.size()), maxPointsCount); i++)
+    {
+        filteredMatches.push_back(matches[i]);
+        fromPoints.push_back(fromKeypoints[matches[i].queryIdx].pt);
+        toPoints.push_back(toKeypoints[matches[i].trainIdx].pt);
+    }
+    std::cout << "Number of matches: " << matches.size() << " but selected only " << filteredMatches.size() << std::endl;
+
+    // Generate an image to show the visualization of control points
+    Mat visualizationMat;
+    drawMatches(fromMat, fromKeypoints, toMat, toKeypoints, filteredMatches, visualizationMat, Scalar::all(-1), Scalar::all(-1), std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+
+    return std::make_tuple(fromPoints, toPoints, visualizationMat);
+}
+
+// Computes the minimum, maximum rectangular boundary of the transformed image.
+void CalculateExtremas(const Image &src, const Mat matrix, double& minX, double& maxX, double& minY, double& maxY)
+{
+    for (size_t v = 0; v < src.height; v++)
+    {
+        for (size_t u = 0; u < src.width; u++)
+        {
+            // Apply matrix to the given x,y
+            double point[3] = {static_cast<double>(u), static_cast<double>(v), 1.0};
+            Mat pointMat(3, 1, CV_64F, point);
+
+            // Perform transformation and retrieve answer
+            Mat result = matrix * pointMat;
+            const double resultX = result.at<double>(0, 0);
+            const double resultY = result.at<double>(1, 0);
+
+            minX = std::min(minX, resultX);
+            maxX = std::max(maxX, resultX);
+            minY = std::min(minY, resultY);
+            maxY = std::max(maxY, resultY);
+        }
+    }
+}
+
+// Blits the given src image onto dest with the specified offsets.
+void Blit(const Image& src, Image& dest, const size_t offsetX, const size_t offsetY, std::unordered_set<std::pair<size_t, size_t>, PairHash>& occupiedPixels)
+{
+    for (size_t v = 0; v < src.height; v++)
+    {
+        for (size_t u = 0; u < src.width; u++)
+        {
+            const size_t x = u + offsetX;
+            const size_t y = v + offsetY;
+
+            if (dest.IsInBounds(static_cast<int32_t>(y), static_cast<int32_t>(x)))
+            {
+                const auto pos = std::make_pair(y, x);
+
+                // It is the first time drawing at this position
+                if (occupiedPixels.find(pos) == occupiedPixels.end())
+                {
+                    for (size_t c = 0; c < src.channels; c++)
+                        dest(y, x, c) = src(v, u, c);
+                }
+                // Already has been drawn there before, lets average
+                else
+                {
+                    for (size_t c = 0; c < src.channels; c++)
+                        dest(y, x, c) = Saturate((double)dest(y, x, c) * 0.5 + (double)src(v, u, c) * 0.5);
+                }
+
+                occupiedPixels.insert(pos);
+            }
+        }
+    }
+}
+
+// Blits the given src image onto dest with the specified offsets and transformation matrix. This uses inverse address mapping.
+void BlitInverse(const Image& src, Image& dest, const size_t offsetX, const size_t offsetY, std::unordered_set<std::pair<size_t, size_t>, PairHash>& occupiedPixels, const Mat matrix)
+{
+    const Mat invMat = matrix.inv();
+    for (size_t v = 0; v < dest.height; v++)
+    {
+        for (size_t u = 0; u < dest.width; u++)
+        {
+            // // Apply matrix to the given x,y
+            double point[3] = {static_cast<double>(u) - offsetX, static_cast<double>(v) - offsetY, 1.0};
+            Mat pointMat(3, 1, CV_64F, point);
+
+            // // Perform transformation and retrieve answer
+            Mat result = invMat * pointMat;
+            const double resultX = result.at<double>(0, 0);
+            const double resultY = result.at<double>(1, 0);
+
+            const int32_t srcX = static_cast<int32_t>(std::round(resultX));
+            const int32_t srcY = static_cast<int32_t>(std::round(resultY));
+
+            // Only copy pixels if the pixel is within bounds
+            if (src.IsInBounds(srcY, srcX))
+            {
+                const auto pos = std::make_pair(v, u);
+                
+                // It is the first time drawing at this position
+                if (occupiedPixels.find(pos) == occupiedPixels.end())
+                {
+                    for (size_t c = 0; c < src.channels; c++)
+                        dest(v, u, c) = src(srcY, srcX, c);
+                }
+                // Already has been drawn there before, lets average
+                else
+                {
+                    for (size_t c = 0; c < src.channels; c++)
+                        dest(v, u, c) = Saturate((double)dest(v, u, c) * 0.5 + (double)src(srcY, srcX, c) * 0.5);
+                }
+
+                occupiedPixels.insert(pos);
+            }
+        }
+    }
+}
+
+// Binarizes the grayscale image for Q3a using a threshold [0, 255]
+Image BinarizeImage(const Image& image, const double threshold)
+{
+    // Binarize
+    Image binarized(image);
+    for (size_t v = 0; v < image.height; v++)
+        for (size_t u = 0; u < image.width; u++)
+            binarized(v, u, 0) = (static_cast<double>(image(v, u, 0)) > threshold) ? 255 : 0;
+
+    return binarized;
+}
+
+// Binarizes the grayscale image for Q3a
+Image BinarizeImage(const Image& image)
+{
+    // Find maximum pixel intensity
+    uint8_t maxIntensity = 0;
+    for (size_t v = 0; v < image.height; v++)
+        for (size_t u = 0; u < image.width; u++)
+            maxIntensity = std::max(maxIntensity, image(v, u, 0));
+    
+    // Binarize
+    const double threshold = 0.5 * static_cast<double>(maxIntensity);
+    return BinarizeImage(image, threshold);
+}
+
+// Apply a single round of morphological processing on the given image
+void ApplyMorphological(Image &image, const std::vector<Filter> &filters1, const std::vector<Filter> &filters2, bool& converged)
+{
+    // Stage1: Generate marks
+    Image marks(image.width, image.height, 1);
+    marks.Fill(0);
+    
+    for (size_t v = 0; v < image.height; v++)
+        for (size_t u = 0; u < image.width; u++)
+            for (const Filter& filter : filters1)
+            {
+                if (filter.Match01(image, static_cast<int32_t>(v), static_cast<int32_t>(u), 0, BoundaryExtension::Zero))
+                {
+                    marks(v, u, 0) = 255;
+                    break; // no need to check for the other filters
+                }
+            }
+
+    // Stage2: Generate output image
+    converged = true;
+    for (size_t v = 0; v < marks.height; v++)
+        for (size_t u = 0; u < marks.width; u++)
+        {
+            if (marks(v, u, 0) == 255)
+            {
+                bool matched = false;
+                for (const Filter& filter : filters2)
+                {
+                    matched |= filter.Match(marks, static_cast<int32_t>(v), static_cast<int32_t>(u), 0, BoundaryExtension::Zero);
+                    if (matched)
+                        break; // no need to check for the other filters
+                }
+
+                if (!matched)
+                {
+                    image(v, u, 0) = 0;
+                    converged = false;
+                }
+            }
+        }
+}
+
+// Return a thinning conditional filter for first stage
+std::vector<Filter> GenerateThinningConditionalFilter()
+{
+    std::vector<Filter> filters;
+    filters.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 0, 1, 1, 1, 1, 1, 1, 1}));
+    return filters;
+}
+
+// Create a shrinking conditional filter for first stage
+std::vector<Filter> GenerateShrinkingConditionalFilter()
+{
+    std::vector<Filter> filters;
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 0, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 0, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 0, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 0, 1, 1}));
+    filters.push_back(Filter(3, {0, 1, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 0}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 0, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 0}));
+    filters.push_back(Filter(3, {1, 1, 0, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 0, 0, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {0, 0, 1, 1, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 0, 1, 1, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 1, 1, 0, 1}));
+    filters.push_back(Filter(3, {1, 1, 1, 1, 1, 0, 1, 1, 1}));
+    filters.push_back(Filter(3, {1, 0, 1, 1, 1, 1, 1, 1, 1}));
+    return filters;
+}
+
+// Create a thinning unconditional filter for second stage
+std::vector<Filter> GenerateThinningShrinkingUnconditionalFilter()
+{
+    std::vector<Filter> filters;
+    filters.push_back(Filter(3, {0, 0, F_M, 0, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {F_M, 0, 0, 0, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, 0, F_M, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, F_M, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, F_M, 0, F_M, F_M, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, F_M, F_M, 0, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {F_M, F_M, 0, 0, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {F_M, 0, 0, F_M, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, F_M, F_M, 0, F_M, 0, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, F_M, F_M, 0}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, 0, 0, F_M, F_M}));
+    filters.push_back(Filter(3, {0, 0, 0, 0, F_M, F_M, 0, 0, F_M}));
+    filters.push_back(Filter(3, {0, F_M, F_M, F_M, F_M, 0, 0, 0, 0}));
+    filters.push_back(Filter(3, {F_M, F_M, 0, 0, F_M, F_M, 0, 0, 0}));
+    filters.push_back(Filter(3, {0, F_M, 0, 0, F_M, F_M, 0, 0, F_M}));
+    filters.push_back(Filter(3, {0, 0, F_M, 0, F_M, F_M, 0, F_M, 0}));
+    filters.push_back(Filter(3, {0, F_A, F_M, 0, F_M, F_B, F_M, 0, 0}));
+    filters.push_back(Filter(3, {F_M, F_B, 0, F_A, F_M, 0, 0, 0, F_M}));
+    filters.push_back(Filter(3, {0, 0, F_M, F_A, F_M, 0, F_M, F_B, 0}));
+    filters.push_back(Filter(3, {F_M, 0, 0, 0, F_M, F_B, 0, F_A, F_M}));
+    filters.push_back(Filter(3, {F_M, F_M, F_DC, F_M, F_M, F_DC, F_DC, F_DC, F_DC}));
+    filters.push_back(Filter(3, {F_DC, F_M, 0, F_M, F_M, F_M, F_DC, 0, 0}));
+    filters.push_back(Filter(3, {0, F_M, F_DC, F_M, F_M, F_M, 0, 0, F_DC}));
+    filters.push_back(Filter(3, {0, 0, F_DC, F_M, F_M, F_M, 0, F_M, F_DC}));
+    filters.push_back(Filter(3, {F_DC, 0, 0, F_M, F_M, F_M, F_DC, F_M, 0}));
+    filters.push_back(Filter(3, {F_DC, F_M, F_DC, F_M, F_M, 0, 0, F_M, 0}));
+    filters.push_back(Filter(3, {0, F_M, 0, F_M, F_M, 0, F_DC, F_M, F_DC}));
+    filters.push_back(Filter(3, {0, F_M, 0, 0, F_M, F_M, F_DC, F_M, F_DC}));
+    filters.push_back(Filter(3, {F_DC, F_M, F_DC, 0, F_M, F_M, 0, F_M, 0}));
+    filters.push_back(Filter(3, {F_M, F_DC, F_M, F_DC, F_M, F_DC, F_A, F_B, F_C}));
+    filters.push_back(Filter(3, {F_M, F_DC, F_C, F_DC, F_M, F_B, F_M, F_DC, F_A}));
+    filters.push_back(Filter(3, {F_C, F_B, F_A, F_DC, F_M, F_DC, F_M, F_DC, F_M}));
+    filters.push_back(Filter(3, {F_A, F_DC, F_M, F_B, F_M, F_DC, F_C, F_DC, F_M}));
+    filters.push_back(Filter(3, {F_DC, F_M, 0, 0, F_M, F_M, F_M, 0, F_DC}));
+    filters.push_back(Filter(3, {0, F_M, F_DC, F_M, F_M, 0, F_DC, 0, F_M}));
+    filters.push_back(Filter(3, {F_DC, 0, F_M, F_M, F_M, 0, 0, F_M, F_DC}));
+    filters.push_back(Filter(3, {F_M, 0, F_DC, 0, F_M, F_M, F_DC, F_M, 0}));
+    return filters;
+}
+
+// Inverts the given image (black to white, white to black)
+Image Invert(const Image& image)
+{
+    Image result(image);
+
+    for (size_t v = 0; v < result.height; v++)
+        for (size_t u = 0; u < result.width; u++)
+            for (size_t c = 0; c < result.channels; c++)
+                result(v, u, c) = static_cast<uint8_t>(255 - static_cast<int32_t>(image(v, u, c)));
+
+    return result;
+}
+
+// Naive approach of converting a colored image into only black and white (binarizing)
+// White in RGB is background, and will be black; rest becomes white
+Image RGB2BinarizedGrayscale(const Image& image)
+{
+    Image result(image.width, image.height, 1);
+
+    for (size_t v = 0; v < result.height; v++)
+    {
+        for (size_t u = 0; u < result.width; u++)
+        {
+            bool isWhite = true;
+            for (size_t c = 0; c < image.channels; c++)
+                isWhite &= (image(v, u, c) == 255);
+
+            // White in RGB image is background but is black in grayscale image
+            result(v, u, 0) = isWhite ? 0 : 255;
+        }
+    }
+
+    return result;
+}
+
+#endif // IMPLEMENTATIONS_H
+
+/*
+#################################################################################################################
+
+# EE569 Homework Assignment #3
+# Date: March 10, 2022
+# Name: Mohammad Alali
+# ID: 5661-9219-82
+# email: alalim@usc.edu
+
+#################################################################################################################
+
+    CONSOLE APPLICATION : Geometric Image Modification
+	
+#################################################################################################################
+
+This file will load an RGB image and then wrap the image as well as unwrap it back to original using a spatial
+wrapping technique.
+
+#################################################################################################################
+
+Arguments:
+    programName inputFilenameNoExtension width height channels
+    inputFilenameNoExtension is the .raw image without the extension
+Example:
+    .\EE569_HW3_Q1.exe Forky 328 328 3
+    .\EE569_HW3_Q1.exe 22 328 328 3
+
+########################################### Notes on Arguments ####################################################
+
+1- The file paths can be either relative to the executable or absolute paths.
+2- If 'NoExtension' is on an argument, the image filename SHOULD NOT include an extension like .raw, the program will add that automatically.
+3- All arguments are mandatory, only arguments marked with [varName] have defaults.
+
+############################################### Other Files #######################################################
+
+Image.h, Image.cpp
+	These files contain an abstraction for handling RAW images to simplify programming and for ease of readability.
+
+Utility.h, Utility.cpp
+	These files provide auxiliary helper functions used through the program.
+
+Implementations.h
+	This file contains the concrete implementation of the algorithms required in the assignment.
+
+#################################################################################################################
+*/
+
+#include <iostream>
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+
+#include "Image.h"
+#include "Implementations.h"
+
+int main(int argc, char *argv[])
+{
+    // Read the console arguments
+    // Check for proper syntax
+    if (argc != 5)
+    {
+        std::cout << "Syntax Error - Arguments must be:" << std::endl;
+        std::cout << "programName inputFilenameNoExtension width height channels" << std::endl;
+        std::cout << "inputFilenameNoExtension is the .raw image without the extension" << std::endl;
+        return -1;
+    }
+
+	// Parse console arguments
+	const std::string inputFilenameNoExtension = argv[1];
+	const uint32_t width = (uint32_t)atoi(argv[2]);
+	const uint32_t height = (uint32_t)atoi(argv[3]);
+	const uint8_t channels = (uint8_t)atoi(argv[4]);
+
+    // Load input image
+    Image inputImage(width, height, channels);
+	if (!inputImage.ImportRAW(inputFilenameNoExtension + ".raw"))
+		return -1;
+
+    // Create the wrapped image and fill with black
+    Image wrappedImage(inputImage.width, inputImage.height, inputImage.channels);
+    wrappedImage.Fill(0);
+
+    // For each of the triangle sides, calculate the matrices and apply them on the image
+    Mat leftMatrix = CalcWrapMatrix(inputImage, Left);
+    Mat rightMatrix = CalcWrapMatrix(inputImage, Right);
+    Mat topMatrix = CalcWrapMatrix(inputImage, Top);
+    Mat bottomMatrix = CalcWrapMatrix(inputImage, Bottom);
+    ApplyForwardMapping(inputImage, wrappedImage, leftMatrix, Left);
+    ApplyForwardMapping(inputImage, wrappedImage, rightMatrix, Right);
+    ApplyForwardMapping(inputImage, wrappedImage, topMatrix, Top);
+    ApplyForwardMapping(inputImage, wrappedImage, bottomMatrix, Bottom);
+
+    // Export the wrapped image
+    if (!wrappedImage.ExportRAW(inputFilenameNoExtension + "_wrapped.raw"))
+        return -1;
+
+    // Create the unwrapped image and fill with black
+    Image unwrappedImage(inputImage.width, inputImage.height, inputImage.channels);
+    unwrappedImage.Fill(0);
+
+    // For each of the triangle sides, used the same transformation matrices and apply them on the wrapped image
+    ApplyInverseMapping(wrappedImage, unwrappedImage, leftMatrix, Left);
+    ApplyInverseMapping(wrappedImage, unwrappedImage, rightMatrix, Right);
+    ApplyInverseMapping(wrappedImage, unwrappedImage, topMatrix, Top);
+    ApplyInverseMapping(wrappedImage, unwrappedImage, bottomMatrix, Bottom);
+
+    // Export the unwrapped image
+    if (!unwrappedImage.ExportRAW(inputFilenameNoExtension + "_unwrapped.raw"))
+        return -1;
+
+    std::cout << "Done" << std::endl;
+    return 0;
+}
+
+/*
+#################################################################################################################
+
+# EE569 Homework Assignment #3
+# Date: March 10, 2022
+# Name: Mohammad Alali
+# ID: 5661-9219-82
+# email: alalim@usc.edu
+
+#################################################################################################################
+
+    CONSOLE APPLICATION : Homographic Transformation and Image Stitching
+	
+#################################################################################################################
+
+This file will load 3 RGB image that are left, middle, and right and construct a panorama view out of them.
+
+#################################################################################################################
+
+Arguments:
+    programName leftInputFilenameNoExtension middleInputFilenameNoExtension rightInputFilenameNoExtension width height channels
+    *InputFilenameNoExtension is the .raw image without the extension
+Example:
+    .\EE569_HW3_Q2.exe left middle right 576 432 3
+
+########################################### Notes on Arguments ####################################################
+
+1- The file paths can be either relative to the executable or absolute paths.
+2- If 'NoExtension' is on an argument, the image filename SHOULD NOT include an extension like .raw, the program will add that automatically.
+3- All arguments are mandatory, only arguments marked with [varName] have defaults.
+
+############################################### Other Files #######################################################
+
+Image.h, Image.cpp
+	These files contain an abstraction for handling RAW images to simplify programming and for ease of readability.
+
+Utility.h, Utility.cpp
+	These files provide auxiliary helper functions used through the program.
+
+Implementations.h
+	This file contains the concrete implementation of the algorithms required in the assignment.
+
+#################################################################################################################
+*/
+
+#include <iostream>
+#include <unordered_set>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/features2d.hpp>
+#include <opencv2/xfeatures2d.hpp>
+#include <opencv2/xfeatures2d/nonfree.hpp>
+#include <opencv2/calib3d.hpp>
+#include "opencv2/core/utils/logger.hpp"
+
+#include "Image.h"
+#include "Implementations.h"
+
+using namespace cv;
+using namespace cv::xfeatures2d;
+
+int main(int argc, char *argv[])
+{
+    // Make OpenCV silent
+    utils::logging::setLogLevel(utils::logging::LogLevel::LOG_LEVEL_SILENT);
+
+    // Read the console arguments
+    // Check for proper syntax
+    if (argc != 7)
+    {
+        std::cout << "Syntax Error - Arguments must be:" << std::endl;
+        std::cout << "programName leftInputFilenameNoExtension middleInputFilenameNoExtension rightInputFilenameNoExtension width height channels" << std::endl;
+        std::cout << "*InputFilenameNoExtension is the .raw image without the extension" << std::endl;
+        return -1;
+    }
+
+	// Parse console arguments
+	const std::string leftInputFilenameNoExtension = argv[1];
+	const std::string middleInputFilenameNoExtension = argv[2];
+	const std::string rightInputFilenameNoExtension = argv[3];
+	const uint32_t width = (uint32_t)atoi(argv[4]);
+	const uint32_t height = (uint32_t)atoi(argv[5]);
+	const uint8_t channels = (uint8_t)atoi(argv[6]);
+
+    // Load left input image
+    Image leftInputImage(width, height, channels);
+	if (!leftInputImage.ImportRAW(leftInputFilenameNoExtension + ".raw"))
+		return -1;
+    
+    // Load middle input image
+    Image middleInputImage(width, height, channels);
+	if (!middleInputImage.ImportRAW(middleInputFilenameNoExtension + ".raw"))
+		return -1;
+
+    // Load right input image
+    Image rightInputImage(width, height, channels);
+	if (!rightInputImage.ImportRAW(rightInputFilenameNoExtension + ".raw"))
+		return -1;
+
+    // Calculate transformation matrices
+    auto leftControlPoints = FindControlPoints(leftInputImage, middleInputImage, 40);
+    auto rightControlPoints = FindControlPoints(rightInputImage, middleInputImage, 25);
+
+    // Visualize the control points and export them as images
+    imwrite("left-mid.png", std::get<2>(leftControlPoints));
+    imshow("left-mid", std::get<2>(leftControlPoints));
+    imwrite("right-mid.png", std::get<2>(rightControlPoints));
+    imshow("right-mid", std::get<2>(rightControlPoints));
+    waitKey(0);
+
+    // Compute the transformation matrix, H, for left/right to middle given the control points above
+    Mat left2MiddleMat = CalculateHMatrix(std::get<0>(leftControlPoints), std::get<1>(leftControlPoints));
+    Mat right2MiddleMat = CalculateHMatrix(std::get<0>(rightControlPoints), std::get<1>(rightControlPoints));
+
+    // Calculate offsets for the boundary of the canvas
+    double minX = 99999999999;
+    double maxX = -minX, minY = minX, maxY = -minX;
+    CalculateExtremas(leftInputImage, left2MiddleMat, minX, maxX, minY, maxY);
+    CalculateExtremas(rightInputImage, right2MiddleMat, minX, maxX, minY, maxY);
+    std::cout << "Min X: " << minX << std::endl;
+    std::cout << "Max X: " << maxX << std::endl;
+    std::cout << "Min Y: " << minY << std::endl;
+    std::cout << "Max Y: " << maxY << std::endl;
+
+    // Create a large enough canvas, filled with black
+    const double offsetX = std::max(0.0, -minX);
+    const double offsetY = std::max(0.0, -minY);
+    const size_t canvasWidth = static_cast<size_t>(std::round(maxX + offsetX + 1));
+    const size_t canvasHeight = static_cast<size_t>(std::round(maxY + offsetY + 1));
+    std::cout << "Canvas dimensions: " << canvasWidth << ", " << canvasHeight << std::endl;
+    std::cout << "Offsets: " << offsetX << ", " << offsetY << std::endl;
+    Image panoramaImage(canvasWidth, canvasHeight, 3);
+    panoramaImage.Fill(0);
+
+    // Hold the occupied pixels, so we can average out if more than one image draws to the same location
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> occupiedPixels;
+
+    // Blit each image into the canvas using inverse address mapping
+    BlitInverse(leftInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels, left2MiddleMat);
+    BlitInverse(rightInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels, right2MiddleMat);
+
+    // Blit the middle image onto the canvas
+    Blit(middleInputImage, panoramaImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), occupiedPixels);
+
+    // Export panorama image
+    if (!panoramaImage.ExportRAW("panorama.raw"))
+        return -1;
+
+    // Used for local debugging: export and show each image separately as well as altogether
+    Mat tempMat = RGBImageToMat(panoramaImage);
+    imshow("panorama", tempMat);
+    imwrite("panorama.png", tempMat);
+    Image tempImage(canvasWidth, canvasHeight, 3);
+    tempImage.Fill(0);
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> tempS;
+    
+    // Show and export middle image alone
+    Blit(middleInputImage, tempImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), tempS);
+    tempMat = RGBImageToMat(tempImage);
+    tempImage.ExportRAW("solo_mid.raw");
+    imwrite("solo_mid.png", tempMat);
+    imshow("mid", tempMat);
+
+    // Show and export left image alone
+    tempS.clear();
+    tempImage.Fill(0);
+    BlitInverse(leftInputImage, tempImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), tempS, left2MiddleMat);
+    tempMat = RGBImageToMat(tempImage);
+    tempImage.ExportRAW("solo_left.raw");
+    imwrite("solo_left.png", tempMat);
+    imshow("left", tempMat);
+
+    // Show and export right image alone
+    tempS.clear();
+    tempImage.Fill(0);
+    BlitInverse(rightInputImage, tempImage, static_cast<size_t>(std::round(offsetX)), static_cast<size_t>(std::round(offsetY)), tempS, right2MiddleMat);
+    tempMat = RGBImageToMat(tempImage);
+    tempImage.ExportRAW("solo_right.raw");
+    imwrite("solo_right.png", tempMat);
+    imshow("right", tempMat);
+    waitKey(0);
+
+    std::cout << "Done" << std::endl;
+    return 0;
+}
+
+/*
+#################################################################################################################
+
+# EE569 Homework Assignment #3
+# Date: March 10, 2022
+# Name: Mohammad Alali
+# ID: 5661-9219-82
+# email: alalim@usc.edu
+
+#################################################################################################################
+
+    CONSOLE APPLICATION : Basic morphological process implementation
+	
+#################################################################################################################
+
+This file will load grayscale images and apply the thinning filter on them.
+
+#################################################################################################################
+
+Arguments:
+    programName inputFilenameNoExtension width height channels
+    inputFilenameNoExtension is the .raw image without the extension
+Example:
+    .\EE569_HW3_Q3a.exe spring 252 252 1
+    .\EE569_HW3_Q3a.exe flower 247 247 1
+    .\EE569_HW3_Q3a.exe jar 252 252 1
+
+########################################### Notes on Arguments ####################################################
+
+1- The file paths can be either relative to the executable or absolute paths.
+2- If 'NoExtension' is on an argument, the image filename SHOULD NOT include an extension like .raw, the program will add that automatically.
+3- All arguments are mandatory, only arguments marked with [varName] have defaults.
+
+############################################### Other Files #######################################################
+
+Image.h, Image.cpp
+	These files contain an abstraction for handling RAW images to simplify programming and for ease of readability.
+
+Utility.h, Utility.cpp
+	These files provide auxiliary helper functions used through the program.
+
+Implementations.h
+	This file contains the concrete implementation of the algorithms required in the assignment.
+
+#################################################################################################################
+*/
+
+#include <iostream>
+#include <vector>
+
+#include "Image.h"
+#include "Implementations.h"
+#include "Filter.h"
+
+int main(int argc, char *argv[])
+{
+    // Read the console arguments
+    // Check for proper syntax
+    if (argc != 5)
+    {
+        std::cout << "Syntax Error - Arguments must be:" << std::endl;
+        std::cout << "programName inputFilenameNoExtension width height channels" << std::endl;
+        std::cout << "inputFilenameNoExtension is the .raw image without the extension" << std::endl;
+        return -1;
+    }
+
+	// Parse console arguments
+	const std::string inputFilenameNoExtension = argv[1];
+	const uint32_t width = (uint32_t)atoi(argv[2]);
+	const uint32_t height = (uint32_t)atoi(argv[3]);
+	const uint8_t channels = (uint8_t)atoi(argv[4]);
+
+    // Load input image
+    Image inputImage(width, height, channels);
+	if (!inputImage.ImportRAW(inputFilenameNoExtension + ".raw"))
+		return -1;
+
+    // Binarize the given image
+    Image binarizedImage = BinarizeImage(inputImage);
+    if (!binarizedImage.ExportRAW(inputFilenameNoExtension + "_binarized.raw"))
+        return -1;
+
+    // Create a thinning conditional filter for first stage
+    const std::vector<Filter> filters1 = GenerateThinningConditionalFilter();
+
+    // Create a thinning unconditional filter for second stage
+    const std::vector<Filter> filters2 = GenerateThinningShrinkingUnconditionalFilter();
+
+    constexpr int maxIterations = 200;
+    bool converged = false;
+    Image img(binarizedImage);
+
+    int iteration = 0;
+    while (!converged && iteration < maxIterations)
+    {
+        ApplyMorphological(img, filters1, filters2, converged);
+        if (!img.ExportRAW(inputFilenameNoExtension + "_thin_" + std::to_string(iteration + 1) + ".raw"))
+            return -1;
+        iteration++;
+        std::cout << "Completed iteration " << iteration << " / " << maxIterations << std::endl;
+    }
+
+    std::cout << "Done" << std::endl;
+    return 0;
+}
+
+/*
+#################################################################################################################
+
+# EE569 Homework Assignment #3
+# Date: March 10, 2022
+# Name: Mohammad Alali
+# ID: 5661-9219-82
+# email: alalim@usc.edu
+
+#################################################################################################################
+
+    CONSOLE APPLICATION : Object Segmentation and Analysis
+	
+#################################################################################################################
+
+This file will load an RGB image, converted into it grayscale and then compute the number of objects (beans)
+present in the image. Finally, it will also output a segmentation mask for the objects.
+
+#################################################################################################################
+
+Arguments:
+    programName inputFilenameNoExtension width height channels
+    inputFilenameNoExtension is the .raw image without the extension
+Example:
+    .\EE569_HW3_Q3c.exe beans 494 82 3
+
+########################################### Notes on Arguments ####################################################
+
+1- The file paths can be either relative to the executable or absolute paths.
+2- If 'NoExtension' is on an argument, the image filename SHOULD NOT include an extension like .raw, the program will add that automatically.
+3- All arguments are mandatory, only arguments marked with [varName] have defaults.
+
+############################################### Other Files #######################################################
+
+Image.h, Image.cpp
+	These files contain an abstraction for handling RAW images to simplify programming and for ease of readability.
+
+Utility.h, Utility.cpp
+	These files provide auxiliary helper functions used through the program.
+
+Implementations.h
+	This file contains the concrete implementation of the algorithms required in the assignment.
+
+#################################################################################################################
+*/
+
+#include <iostream>
+#include <vector>
+#include <unordered_set>
+
+#include "Image.h"
+#include "Implementations.h"
+#include "Filter.h"
+
+// Explores recurisvely the neighbors of the specified position, while ensuring no position is visited twice
+void Explore(const Image& image, const size_t row, const size_t column, std::unordered_set<std::pair<size_t, size_t>, PairHash>& visited, const uint8_t intensity, const int32_t sizeLimit)
+{
+    // If we already reached the size limit of exploration, abort
+    if (sizeLimit > 0 && visited.size() >= sizeLimit)
+        return;
+
+    const auto pair = std::make_pair(row, column);
+
+    // If already visited, dont revisit
+    if (visited.find(pair) != visited.end())
+        return;
+
+    visited.insert(pair);
+
+    // Explore neighbors
+    for (int32_t dv = -1; dv <= 1; dv++)
+    {
+        for (int32_t du = -1; du <= 1; du++)
+        {
+            // Skip center
+            if (dv == 0 && du == 0)
+                continue;
+
+            const int32_t neighborRow = static_cast<int32_t>(row) + dv;
+            const int32_t neighborColumn = static_cast<int32_t>(column) + du;
+            // Only explore in-bounds white neighboring dots
+            if (image.IsInBounds(neighborRow, neighborColumn) && image.GetPixelValue(neighborRow, neighborColumn) == intensity)
+            {
+                Explore(image, static_cast<size_t>(neighborRow), static_cast<size_t>(neighborColumn), visited, intensity, sizeLimit);
+            }
+        }
+    }
+}
+
+// Calculates the connected region of the given position
+std::unordered_set<std::pair<size_t, size_t>, PairHash> FindIsland(const Image &image, const size_t row, const size_t column, const uint8_t intensity, const int32_t sizeLimit = -1)
+{
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> visited;
+    Explore(image, row, column, visited, intensity, sizeLimit);
+    return visited;
+}
+
+int main(int argc, char *argv[])
+{
+    // Read the console arguments
+    // Check for proper syntax
+    if (argc != 5)
+    {
+        std::cout << "Syntax Error - Arguments must be:" << std::endl;
+        std::cout << "programName inputFilenameNoExtension width height channels" << std::endl;
+        std::cout << "inputFilenameNoExtension is the .raw image without the extension" << std::endl;
+        return -1;
+    }
+
+	// Parse console arguments
+	const std::string inputFilenameNoExtension = argv[1];
+	const uint32_t width = (uint32_t)atoi(argv[2]);
+	const uint32_t height = (uint32_t)atoi(argv[3]);
+	const uint8_t channels = (uint8_t)atoi(argv[4]);
+
+    // Load input image
+    Image inputImage(width, height, channels);
+	if (!inputImage.ImportRAW(inputFilenameNoExtension + ".raw"))
+		return -1;
+
+    // Convert input image to grayscale
+    Image inputGrayscaleImage = RGB2Grayscale(inputImage);
+    if (!inputGrayscaleImage.ExportRAW(inputFilenameNoExtension + "_gray.raw"))
+        return -1;
+
+    // Binarize grayscale image
+    Image binarizedInputImage = BinarizeImage(inputGrayscaleImage, 220);
+    if (!binarizedInputImage.ExportRAW(inputFilenameNoExtension + "_binarized.raw"))
+        return -1;
+
+    // Invert image
+    Image invertedBinarizedInputImage = Invert(binarizedInputImage);
+    if (!invertedBinarizedInputImage.ExportRAW(inputFilenameNoExtension + "_inv_binarized.raw"))
+        return -1;
+
+    // --- Shrinking
+
+    // Create a shrinking conditional filter for first stage
+    const std::vector<Filter> filters1 = GenerateShrinkingConditionalFilter();
+
+    // Create a shrinking unconditional filter for second stage
+    const std::vector<Filter> filters2 = GenerateThinningShrinkingUnconditionalFilter();
+
+    constexpr int maxIterations = 100;
+    bool converged = false;
+    Image img(invertedBinarizedInputImage);
+
+    int iteration = 0;
+    while (!converged && iteration < maxIterations)
+    {
+        ApplyMorphological(img, filters1, filters2, converged); // actually shrinking :P
+        if (!img.ExportRAW(inputFilenameNoExtension + "_shrink_" + std::to_string(iteration + 1) + ".raw"))
+            return -1;
+        iteration++;
+        std::cout << "Completed iteration " << iteration << " / " << maxIterations << std::endl;
+    }
+
+    // Count number of white dots after shrinking
+    std::vector<std::pair<size_t, size_t>> whiteDots;
+    for (size_t v = 0; v < img.height; v++)
+        for (size_t u = 0; u < img.width; u++)
+            if (img(v, u, 0) == 255)
+                whiteDots.push_back(std::make_pair(v, u));
+    std::cout << "There are " << whiteDots.size() << " white dots." << std::endl;
+
+    // Count the beans by checking neighbors of each whiteDot. Only count an island once
+    // island = connected component analysis
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> visited;
+    std::vector<std::pair<size_t, size_t>> beanPoints;
+    for (const auto &[v, u] : whiteDots)
+    {
+        const auto pair = std::make_pair(v, u);
+        // If not already visited, visit
+        if (visited.find(pair) == visited.end())
+        {
+            Explore(img, v, u, visited, 255, -1);
+            beanPoints.push_back(std::make_pair(v, u));
+        }
+    }
+    std::cout << "There are " << beanPoints.size() << " beans present." << std::endl;
+
+    // Construct segmentation mask
+    Image segmentationImage(invertedBinarizedInputImage);
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> segmentationVisited;
+    for (size_t v = 0; v < segmentationImage.height; v++)
+    {
+        for (size_t u = 0; u < segmentationImage.width; u++)
+        {
+            // Skip white pixels
+            if (invertedBinarizedInputImage(v, u, 0) == 255)
+                continue;
+
+            // Skip visited pixels
+            const std::pair<size_t, size_t> pair = std::make_pair(v, u);
+            if (segmentationVisited.find(pair) != segmentationVisited.end())
+                continue;
+
+            // Only fill closed-in black islands with white
+            const auto island = FindIsland(invertedBinarizedInputImage, v, u, invertedBinarizedInputImage(v, u, 0), 200);
+            for (const auto& point : island)
+            {
+                segmentationVisited.insert(point);
+                if (island.size() < 200)
+                    segmentationImage(point.first, point.second) = 255;
+            }
+        }
+    }
+
+    // Export segmentation mask
+    if (!segmentationImage.ExportRAW(inputFilenameNoExtension + "_segmask.raw"))
+        return -1;
+
+    // Using the bean points, get each beans connected region size
+    for (const auto &[v, u] : beanPoints)
+    {
+        const auto island = FindIsland(segmentationImage, v, u, segmentationImage(v, u, 0));
+        std::cout << "Bean at " << u << ", " << v << " has a size of " << island.size() << std::endl;
+    }
+
+    std::cout << "Done" << std::endl;
+    return 0;
+}
+
+
+
+/*
+#################################################################################################################
+
+# EE569 Homework Assignment #3
+# Date: March 10, 2022
+# Name: Mohammad Alali
+# ID: 5661-9219-82
+# email: alalim@usc.edu
+
+#################################################################################################################
+
+    CONSOLE APPLICATION : Defect detection and counting
+	
+#################################################################################################################
+
+This file will load a grayscale image and detect any defects as well as count them and then finally correct the
+input image and export without any defects.
+
+#################################################################################################################
+
+Arguments:
+    programName inputFilenameNoExtension width height channels [defectSizeThreshold=50]
+    inputFilenameNoExtension is the .raw image without the extension
+Example:
+    .\EE569_HW3_Q3b.exe deer 550 691 1 50
+
+########################################### Notes on Arguments ####################################################
+
+1- The file paths can be either relative to the executable or absolute paths.
+2- If 'NoExtension' is on an argument, the image filename SHOULD NOT include an extension like .raw, the program will add that automatically.
+3- All arguments are mandatory, only arguments marked with [varName] have defaults.
+
+############################################### Other Files #######################################################
+
+Image.h, Image.cpp
+	These files contain an abstraction for handling RAW images to simplify programming and for ease of readability.
+
+Utility.h, Utility.cpp
+	These files provide auxiliary helper functions used through the program.
+
+Implementations.h
+	This file contains the concrete implementation of the algorithms required in the assignment.
+
+#################################################################################################################
+*/
+
+#include <iostream>
+#include <vector>
+#include <unordered_set>
+
+#include "Image.h"
+#include "Implementations.h"
+#include "Filter.h"
+
+// Explores recurisvely the neighbors of the specified position, while ensuring no position is visited twice
+void Explore(const Image& image, const size_t row, const size_t column, const uint32_t defectSizeThreshold, std::unordered_set<std::pair<size_t, size_t>, PairHash>& visited)
+{
+    // If visited is already so large, abort early
+    if (visited.size() >= defectSizeThreshold)
+        return;
+
+    const auto pair = std::make_pair(row, column);
+
+    // If already visited, dont revisit
+    if (visited.find(pair) != visited.end())
+        return;
+
+    visited.insert(pair);
+
+    // Explore neighbors
+    for (int32_t dv = -1; dv <= 1; dv++)
+    {
+        for (int32_t du = -1; du <= 1; du++)
+        {
+            // Skip center
+            if (dv == 0 && du == 0)
+                continue;
+
+            const int32_t neighborRow = static_cast<int32_t>(row) + dv;
+            const int32_t neighborColumn = static_cast<int32_t>(column) + du;
+            // Only explore in-bounds black neighboring dots
+            if (image.IsInBounds(neighborRow, neighborColumn) && image.GetPixelValue(neighborRow, neighborColumn) == 0)
+                Explore(image, static_cast<size_t>(neighborRow), static_cast<size_t>(neighborColumn), defectSizeThreshold, visited);
+        }
+    }
+}
+
+// Calculates the connected region of the given position
+std::unordered_set<std::pair<size_t, size_t>, PairHash> FindDefect(const Image& image, const size_t row, const size_t column, const uint32_t defectSizeThreshold)
+{
+    std::unordered_set<std::pair<size_t, size_t>, PairHash> visited;
+    Explore(image, row, column, defectSizeThreshold, visited);
+    return visited;
+}
+
+// Removes the defect by setting all pixels in the defect to white (255)
+void RemoveDefect(Image& image, const std::unordered_set<std::pair<size_t, size_t>, PairHash> defects)
+{
+    for (const auto& [v, u] : defects)
+        image(v, u, 0) = 255;
+}
+
+int main(int argc, char *argv[])
+{
+    // Read the console arguments
+    // Check for proper syntax
+    if (argc != 5 && argc != 6)
+    {
+        std::cout << "Syntax Error - Arguments must be:" << std::endl;
+        std::cout << "programName inputFilenameNoExtension width height channels [defectSizeThreshold=50]" << std::endl;
+        std::cout << "inputFilenameNoExtension is the .raw image without the extension" << std::endl;
+        return -1;
+    }
+
+	// Parse console arguments
+	const std::string inputFilenameNoExtension = argv[1];
+	const uint32_t width = (uint32_t)atoi(argv[2]);
+	const uint32_t height = (uint32_t)atoi(argv[3]);
+	const uint8_t channels = (uint8_t)atoi(argv[4]);
+    uint32_t defectSizeThreshold = 50;
+
+    // Parse optional defectSizeThreshold console argument
+    if (argc == 6)
+        defectSizeThreshold = (uint32_t)atoi(argv[5]);
+
+    // Load input image
+    Image inputImage(width, height, channels);
+	if (!inputImage.ImportRAW(inputFilenameNoExtension + ".raw"))
+		return -1;
+
+    // Binarize the input image
+    Image binarizedInputImage = BinarizeImage(inputImage);
+    if (!binarizedInputImage.ExportRAW(inputFilenameNoExtension + "_binarized.raw"))
+        return -1;
+
+    // Invert the input image
+    Image invertedInputImage = Invert(binarizedInputImage);
+    if (!invertedInputImage.ExportRAW(inputFilenameNoExtension + "_inv_binarized.raw"))
+        return -1;
+
+    // Create a shrinking conditional filter for first stage
+    const std::vector<Filter> filters1 = GenerateShrinkingConditionalFilter();
+
+    // Create a shrinking unconditional filter for second stage
+    const std::vector<Filter> filters2 = GenerateThinningShrinkingUnconditionalFilter();
+
+    constexpr int maxIterations = 2000;
+    bool converged = false;
+    Image img(invertedInputImage);
+
+    int iteration = 0;
+    while (!converged && iteration < maxIterations)
+    {
+        ApplyMorphological(img, filters1, filters2, converged); // actually shrinking :P
+        if (!img.ExportRAW(inputFilenameNoExtension + "_shrink_" + std::to_string(iteration + 1) + ".raw"))
+            return -1;
+        iteration++;
+        std::cout << "Completed iteration " << iteration << " / " << maxIterations << std::endl;
+    }
+
+    // Count number of white dots after shrinking
+    std::vector<std::pair<size_t, size_t>> whiteDots;
+    for (size_t v = 0; v < img.height; v++)
+        for (size_t u = 0; u < img.width; u++)
+            if (img(v, u, 0) == 255)
+                whiteDots.push_back(std::make_pair(v, u));
+    std::cout << "There are " << whiteDots.size() << " white dots." << std::endl;
+    
+    // Count the defects by checking neighbors of each whiteDot in the original image (defect is <50 px)
+    // Also, remove the defects from the binarized image
+    Image correctedImage(binarizedInputImage);
+    std::vector<std::pair<size_t, size_t>> defects;
+    for (const auto &[v, u] : whiteDots)
+    {
+        const auto defect = FindDefect(binarizedInputImage, v, u, defectSizeThreshold);
+        if (defect.size() < defectSizeThreshold)
+        {
+            std::cout << "Detected defect at (" << u << ", " << v << ") of size " << defect.size() << std::endl;
+            RemoveDefect(correctedImage, defect);
+            defects.push_back(std::make_pair(v, u));
+        }
+    }
+    std::cout << "There are " << defects.size() << " defects present." << std::endl;
+
+    // Export corrected image
+    if (!correctedImage.ExportRAW(inputFilenameNoExtension + "_corrected.raw"))
+        return -1;
+
+    std::cout << "Done" << std::endl;
+    return 0;
+}
+
+#include "Utility.h"
+#include <cmath>
+#include <iostream>
+
+// Returns the intensity saturated to the range [0, 255]
+uint8_t Saturate(const double intensity)
+{
+    return static_cast<uint8_t>(std::clamp(std::round(intensity), 0.0, 255.0));
+}
+
+// Converts the given image coordinate to cartesian coordinates, [x,y] are in [0, w) and [0, h)
+std::pair<double, double> ImageToCartesianCoord(const Image& image, const double& x, const double& y)
+{
+    const double imageWidth = static_cast<double>(image.width);
+    const double imageHeight = static_cast<double>(image.height);
+
+    if (x < 0 || x >= imageWidth || y < 0 || y >= imageHeight)
+    {
+        std::cout << "Invalid image coordinate for ImageToCartesianCoord(): " << x << ", " << y << " for size " << imageWidth << ", " << imageHeight << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    // Original one-based equations
+    // x_k = k - 0.5
+    // y_j = J + 0.5 - j
+
+    // Modified zero-based equations
+    // x_k = k + 0.5
+    // y_j = J - 0.5 - j
+    return std::make_pair(x + 0.5, imageHeight - 0.5 - y);
+}
+
+// Converts the given cartesian coordinate to image coordinates
+std::pair<double, double> CartesianToImageCoord(const Image& image, const double& x, const double& y)
+{
+    // Original one-based equations
+    // k = x_k + 0.5
+    // j = J + 0.5 - y_j
+
+    // Modified zero-based equations
+    // k = x_k - 0.5
+    // j = J - 0.5 - y_j
+    const double imageHeight = static_cast<double>(image.height);
+    return std::make_pair(x - 0.5, imageHeight - 0.5 - y);
+}
+
+// Converts the given RGB image into an OpenCV Mat object
+cv::Mat RGBImageToMat(const Image& image)
+{
+    using namespace cv;
+    if (image.channels != 3)
+    {
+        std::cout << "Cannot convert non-RGB image to OpenCV Mat." << std::endl;
+        exit(-1);
+    }
+
+    Mat mat = Mat::zeros(static_cast<int>(image.height), static_cast<int>(image.width), CV_8UC3);
+    for (uint32_t v = 0; v < image.height; v++)
+        for (uint32_t u = 0; u < image.width; u++)
+        {
+            cv::Vec3b &color = mat.at<cv::Vec3b>(v, u);
+            // OpenCV uses BGR not RGB
+            for (uint32_t c = 0; c < image.channels; c++)
+                color[c] = image(v, u, image.channels - c - 1);
+            mat.at<cv::Vec3b>(v, u) = color;
+        }
+
+    return mat;
+}
+
+// Converts an image from RGB to Grayscale
+Image RGB2Grayscale(const Image &image)
+{
+    Image result(image.width, image.height, 1);
+
+    for (size_t v = 0; v < result.height; v++)
+    {
+        for (size_t u = 0; u < result.width; u++)
+        {
+            const double r = static_cast<double>(image(v, u, 0));
+            const double g = static_cast<double>(image(v, u, 1));
+            const double b = static_cast<double>(image(v, u, 2));
+            const double y = 0.2989 * r + 0.5870 * g + 0.1140 * b;
+            result(v, u, 0) = Saturate(y);
+        }
+    }
+
+    return result;
+}
+
+#pragma once
+
+#ifndef UTILITY_H
+#define UTILITY_H
+
+#include "Image.h"
+#include <opencv2/core.hpp>
+
+// Returns the intensity saturated to the range [0, 255]
+uint8_t Saturate(const double intensity);
+
+// Converts the given image coordinate to cartesian coordinates
+std::pair<double, double> ImageToCartesianCoord(const Image &image, const double &x, const double &y);
+
+// Converts the given cartesian coordinate to image coordinates
+std::pair<double, double> CartesianToImageCoord(const Image &image, const double &x, const double &y);
+
+// Converts the given RGB image into an OpenCV Mat object
+cv::Mat RGBImageToMat(const Image &image);
+
+// Converts an image from RGB to Grayscale
+Image RGB2Grayscale(const Image &image);
+
+// Credit: https://stackoverflow.com/questions/15160889/how-can-i-make-an-unordered-set-of-pairs-of-integers-in-c
+// Used to make a std::pair hashable for std::unordered_set
+struct PairHash
+{
+    inline std::size_t operator()(const std::pair<size_t, size_t>& v) const
+    {
+        return v.first * 31 + v.second;
+    }
+};
+
+#endif // UTILITY_H
